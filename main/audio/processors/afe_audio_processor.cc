@@ -3,11 +3,19 @@
 
 #include "settings.h"
 
+#ifndef CONFIG_AUDIO_VAD_MODE
+#define CONFIG_AUDIO_VAD_MODE 1
+#endif
+
+#ifndef CONFIG_AUDIO_VAD_MIN_NOISE_MS
+#define CONFIG_AUDIO_VAD_MIN_NOISE_MS 160
+#endif
+
 #define PROCESSOR_RUNNING 0x01
 
 #define TAG "AfeAudioProcessor"
 
-static afe_vad_mode_t ResolveVadMode(int mode) {
+static vad_mode_t ResolveVadMode(int mode) {
     switch (mode) {
         case 0:
             return VAD_MODE_0;
