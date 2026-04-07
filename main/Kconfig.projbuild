@@ -743,15 +743,42 @@ choice WAKE_WORD_TYPE
 
 endchoice
 
+choice CUSTOM_WAKE_WORD_LANGUAGE
+    prompt "Custom Wake Word Language"
+    default CUSTOM_WAKE_WORD_LANG_CN
+    depends on USE_CUSTOM_WAKE_WORD
+    help
+        Select the Multinet language used by the built-in custom wake word model path.
+
+    config CUSTOM_WAKE_WORD_LANG_CN
+        bool "Chinese (cn)"
+
+    config CUSTOM_WAKE_WORD_LANG_EN
+        bool "English (en)"
+endchoice
+
+config CUSTOM_WAKE_WORD_PRESET_ROBOT_OI
+    bool "Preset: Robot oi (display as Robot ơi)"
+    default n
+    depends on USE_CUSTOM_WAKE_WORD
+    select CUSTOM_WAKE_WORD_LANG_EN
+    help
+        Enable an offline preset for Vietnamese-style wake phrase using English phonetic tokens.
+        Detection phrase: "robot oi"
+        Display phrase: "Robot ơi"
+
 config CUSTOM_WAKE_WORD
     string "Custom Wake Word"
+    default "robot oi" if CUSTOM_WAKE_WORD_PRESET_ROBOT_OI
     default "xiao tu dou"
     depends on USE_CUSTOM_WAKE_WORD
     help
-        Custom Wake Word, use pinyin for Chinese, separated by spaces
+        Custom wake phrase tokens for Multinet.
+        Use language-appropriate phonetic tokens separated by spaces (e.g. "xiao tu dou", "robot oi").
 
 config CUSTOM_WAKE_WORD_DISPLAY
     string "Custom Wake Word Display"
+    default "Robot ơi" if CUSTOM_WAKE_WORD_PRESET_ROBOT_OI
     default "小土豆"
     depends on USE_CUSTOM_WAKE_WORD
     help
