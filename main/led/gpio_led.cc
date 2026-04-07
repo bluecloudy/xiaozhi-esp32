@@ -247,6 +247,10 @@ void GpioLed::OnStateChanged() {
             SetBrightness(ACTIVATING_BRIGHTNESS);
             StartContinuousBlink(500);
             break;
+        case kDeviceStateFatalError:
+            SetBrightness(HIGH_BRIGHTNESS);
+            StartContinuousBlink(120);
+            break;
         default:
             ESP_LOGE(TAG, "Unknown gpio led event: %d", device_state);
             return;

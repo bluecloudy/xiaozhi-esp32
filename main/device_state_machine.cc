@@ -32,6 +32,11 @@ const char* DeviceStateMachine::GetStateName(DeviceState state) {
 }
 
 bool DeviceStateMachine::IsValidTransition(DeviceState from, DeviceState to) const {
+    // Fatal error is terminal and can be entered from any non-fatal state.
+    if (to == kDeviceStateFatalError && from != kDeviceStateFatalError) {
+        return true;
+    }
+
     // Allow transition to the same state (no-op)
     if (from == to) {
         return true;
