@@ -86,7 +86,8 @@ void Application::RecordVoiceLatencyTimestamp(const char* stage, int64_t timesta
         voice_latency_trace_.playback_start_us = timestamp_us;
     }
 
-    ESP_LOGI(TAG, "[latency] stage=%s ts_us=%lld", stage, timestamp_us);
+    auto ts_us_str = std::to_string(timestamp_us);
+    ESP_LOGI(TAG, "[latency] stage=%s ts_us=%s", stage, ts_us_str.c_str());
     TryLogVoiceLatency();
 }
 
@@ -104,16 +105,25 @@ void Application::TryLogVoiceLatency() {
     int64_t playback_queue_ms = std::max<int64_t>(0, (voice_latency_trace_.playback_start_us - voice_latency_trace_.response_received_us) / 1000);
     int64_t e2e_ms = std::max<int64_t>(0, (voice_latency_trace_.playback_start_us - voice_latency_trace_.speech_detected_us) / 1000);
 
+    auto speech_detected_us_str = std::to_string(voice_latency_trace_.speech_detected_us);
+    auto request_sent_us_str = std::to_string(voice_latency_trace_.request_sent_us);
+    auto response_received_us_str = std::to_string(voice_latency_trace_.response_received_us);
+    auto playback_start_us_str = std::to_string(voice_latency_trace_.playback_start_us);
+    auto uplink_ms_str = std::to_string(uplink_ms);
+    auto server_ms_str = std::to_string(server_ms);
+    auto playback_queue_ms_str = std::to_string(playback_queue_ms);
+    auto e2e_ms_str = std::to_string(e2e_ms);
+
     ESP_LOGI(TAG,
-             "[latency] speech_detected_us=%lld request_sent_us=%lld response_received_us=%lld playback_start_us=%lld uplink_ms=%lld server_ms=%lld playback_queue_ms=%lld e2e_ms=%lld",
-             voice_latency_trace_.speech_detected_us,
-             voice_latency_trace_.request_sent_us,
-             voice_latency_trace_.response_received_us,
-             voice_latency_trace_.playback_start_us,
-             uplink_ms,
-             server_ms,
-             playback_queue_ms,
-             e2e_ms);
+             "[latency] speech_detected_us=%s request_sent_us=%s response_received_us=%s playback_start_us=%s uplink_ms=%s server_ms=%s playback_queue_ms=%s e2e_ms=%s",
+             speech_detected_us_str.c_str(),
+             request_sent_us_str.c_str(),
+             response_received_us_str.c_str(),
+             playback_start_us_str.c_str(),
+             uplink_ms_str.c_str(),
+             server_ms_str.c_str(),
+             playback_queue_ms_str.c_str(),
+             e2e_ms_str.c_str());
     voice_latency_trace_.logged = true;
 }
 

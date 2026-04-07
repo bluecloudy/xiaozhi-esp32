@@ -1,4 +1,4 @@
-# Minimal delta defaults for ESP32-S3 + 0.96 OLED + Hi Lily + Vietnamese.
+# Minimal delta defaults for ESP32-S3 + 0.96 OLED + Robot oi + Vietnamese.
 # Intended to be used together with sdkconfig.defaults.esp32s3.
 
 # Board: Xingzhi Cube 0.96 OLED (WiFi)
@@ -7,11 +7,16 @@ CONFIG_BOARD_TYPE_XINGZHI_CUBE_0_96OLED_WIFI=y
 # Language: Vietnamese UI/system strings
 CONFIG_LANGUAGE_VI_VN=y
 
-# Wake word engine for ESP32-S3 + PSRAM boards
-CONFIG_USE_AFE_WAKE_WORD=y
+# Wake word engine: custom Multinet path
+CONFIG_USE_CUSTOM_WAKE_WORD=y
 
-# Wake word model: "Hi Lily"
-CONFIG_SR_WN_WN9_HILILI_TTS=y
+# Wake word preset: Robot oi (display: Robot ơi)
+CONFIG_CUSTOM_WAKE_WORD_PRESET_ROBOT_OI=y
 
-# Ensure default wake model is not selected in this profile
+# Keep language explicit for custom wake model path
+CONFIG_CUSTOM_WAKE_WORD_LANG_EN=y
+
+# Ensure AFE/default wake models are not selected in this profile
+# CONFIG_USE_AFE_WAKE_WORD is not set
+# CONFIG_SR_WN_WN9_HILILI_TTS is not set
 # CONFIG_SR_WN_WN9_NIHAOXIAOZHI_TTS is not set
