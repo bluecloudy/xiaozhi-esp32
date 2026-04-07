@@ -1,9 +1,30 @@
 #include "afe_audio_processor.h"
 #include <esp_log.h>
 
+#include "settings.h"
+
 #define PROCESSOR_RUNNING 0x01
 
 #define TAG "AfeAudioProcessor"
+
+static afe_vad_mode_t ResolveVadMode(int mode) {
+    switch (mode) {
+        case 0:
+            return VAD_MODE_0;
+        case 1:
+            return VAD_MODE_1;
+        case 2:
+            return VAD_MODE_2;
+        case 3:
+            return VAD_MODE_3;
+#ifdef VAD_MODE_4
+        case 4:
+            return VAD_MODE_4;
+#endif
+        default:
+            return VAD_MODE_1;
+    }
+}
 
 AfeAudioProcessor::AfeAudioProcessor()
     : afe_data_(nullptr) {
@@ -36,14 +57,33 @@ void AfeAudioProcessor::Initialize(AudioCodec* codec, int frame_duration_ms, srm
 
     char* ns_model_name = esp_srmodel_filter(models, ESP_NSNET_PREFIX, NULL);
     char* vad_model_name = esp_srmodel_filter(models, ESP_VADN_PREFIX, NULL);
+
+    Settings audio_settings("audio", false);
+    int vad_mode = audio_settings.GetInt("vad_mode", CONFIG_AUDIO_VAD_MODE);
+    if (vad_mode < 0) {
+        vad_mode = 0;
+    }
+    if (vad_mode > 4) {
+        vad_mode = 4;
+    }
+
+    int vad_min_noise_ms = audio_settings.GetInt("vad_min_noise_ms", CONFIG_AUDIO_VAD_MIN_NOISE_MS);
+    if (vad_min_noise_ms < 20) {
+        vad_min_noise_ms = 20;
+    }
+    if (vad_min_noise_ms > 1000) {
+        vad_min_noise_ms = 1000;
+    }
     
     afe_config_t* afe_config = afe_config_init(input_format.c_str(), NULL, AFE_TYPE_VC, AFE_MODE_HIGH_PERF);
     afe_config->aec_mode = AEC_MODE_VOIP_HIGH_PERF;
-    afe_config->vad_mode = VAD_MODE_0;
-    afe_config->vad_min_noise_ms = 100;
+    afe_config->vad_mode = ResolveVadMode(vad_mode);
+    afe_config->vad_min_noise_ms = vad_min_noise_ms;
     if (vad_model_name != nullptr) {
         afe_config->vad_model_name = vad_model_name;
     }
+
+    ESP_LOGI(TAG, "VAD config: mode=%d min_noise_ms=%d", vad_mode, vad_min_noise_ms);
 
     if (ns_model_name != nullptr) {
         afe_config->ns_init = true;

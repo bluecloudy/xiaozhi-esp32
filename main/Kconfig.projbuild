@@ -789,6 +789,25 @@ config USE_AUDIO_PROCESSOR
     help
         Requires ESP32 S3 and PSRAM
 
+config AUDIO_VAD_MODE
+    int "Audio VAD Mode"
+    default 1
+    range 0 4
+    depends on USE_AUDIO_PROCESSOR
+    help
+        VAD aggressiveness mode used by AFE.
+        Larger values are generally more aggressive and may reject low-energy speech.
+        For children voice, a less aggressive mode (1) is recommended over mode 0/2+ in noisy rooms.
+
+config AUDIO_VAD_MIN_NOISE_MS
+    int "Audio VAD Min Noise Duration (ms)"
+    default 160
+    range 20 1000
+    depends on USE_AUDIO_PROCESSOR
+    help
+        Minimum duration of non-speech before VAD reports silence.
+        Slightly increasing this value helps avoid cutting off short high-pitch syllables.
+
 config USE_DEVICE_AEC
     bool "Enable Device-Side AEC"
     default n
