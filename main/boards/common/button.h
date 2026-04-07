@@ -8,6 +8,12 @@
 #include <button_gpio.h>
 #include <functional>
 
+enum class ButtonCommand {
+    kToggleChat,
+    kStartListening,
+    kStopListening,
+};
+
 class Button {
 public:
     Button(button_handle_t button_handle);
@@ -20,6 +26,13 @@ public:
     void OnClick(std::function<void()> callback);
     void OnDoubleClick(std::function<void()> callback);
     void OnMultipleClick(std::function<void()> callback, uint8_t click_count = 3);
+    void OnPressDownCommand(ButtonCommand command);
+    void OnPressUpCommand(ButtonCommand command);
+    void OnLongPressCommand(ButtonCommand command);
+    void OnClickCommand(ButtonCommand command);
+    void OnDoubleClickCommand(ButtonCommand command);
+
+    static void ExecuteCommand(ButtonCommand command);
 
 protected:
     gpio_num_t gpio_num_;

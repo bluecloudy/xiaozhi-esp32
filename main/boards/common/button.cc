@@ -1,5 +1,7 @@
 #include "button.h"
 
+#include "application.h"
+
 #include <button_gpio.h>
 #include <esp_log.h>
 
@@ -122,4 +124,52 @@ void Button::OnMultipleClick(std::function<void()> callback, uint8_t click_count
             button->on_multiple_click_();
         }
     }, this);
+}
+
+void Button::ExecuteCommand(ButtonCommand command) {
+    auto& app = Application::GetInstance();
+    switch (command) {
+        case ButtonCommand::kToggleChat:
+            app.ToggleChatState();
+            break;
+        case ButtonCommand::kStartListening:
+            app.StartListening();
+            break;
+        case ButtonCommand::kStopListening:
+            app.StopListening();
+            break;
+        default:
+            ESP_LOGW(TAG, "Unknown button command: %d", static_cast<int>(command));
+            break;
+    }
+}
+
+void Button::OnPressDownCommand(ButtonCommand command) {
+    OnPressDown([command]() {
+        ExecuteCommand(command);
+    });
+}
+
+void Button::OnPressUpCommand(ButtonCommand command) {
+    OnPressUp([command]() {
+        ExecuteCommand(command);
+    });
+}
+
+void Button::OnLongPressCommand(ButtonCommand command) {
+    OnLongPress([command]() {
+        ExecuteCommand(command);
+    });
+}
+
+void Button::OnClickCommand(ButtonCommand command) {
+    OnClick([command]() {
+        ExecuteCommand(command);
+    });
+}
+
+void Button::OnDoubleClickCommand(ButtonCommand command) {
+    OnDoubleClick([command]() {
+        ExecuteCommand(command);
+    });
 }

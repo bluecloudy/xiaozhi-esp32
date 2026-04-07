@@ -111,12 +111,8 @@ private:
             }
         });
 
-        touch_button_.OnPressDown([this]() {
-            Application::GetInstance().StartListening();
-        });
-        touch_button_.OnPressUp([this]() {
-            Application::GetInstance().StopListening();
-        });
+        touch_button_.OnPressDownCommand(ButtonCommand::kStartListening);
+        touch_button_.OnPressUpCommand(ButtonCommand::kStopListening);
 
         volume_up_button_.OnClick([this]() {
             auto codec = GetAudioCodec();
