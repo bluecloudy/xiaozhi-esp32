@@ -16,6 +16,7 @@
 #include <driver/gpio.h>
 #include <arpa/inet.h>
 #include <font_awesome.h>
+#include <algorithm>
 
 #define TAG "Application"
 
@@ -58,6 +59,64 @@ bool Application::SetDeviceState(DeviceState state) {
     return state_machine_.TransitionTo(state);
 }
 
+void Application::RecordVoiceLatencyTimestamp(const char* stage, int64_t timestamp_us) {
+    if (voice_latency_trace_.logged) {
+        voice_latency_trace_ = VoiceLatencyTrace{};
+    }
+
+    if (strcmp(stage, "speech_detected") == 0) {
+        if (voice_latency_trace_.request_sent_us >= 0 || voice_latency_trace_.response_received_us >= 0) {
+            voice_latency_trace_ = VoiceLatencyTrace{};
+        }
+        voice_latency_trace_.speech_detected_us = timestamp_us;
+    } else if (strcmp(stage, "request_sent") == 0) {
+        if (voice_latency_trace_.speech_detected_us < 0) {
+            voice_latency_trace_.speech_detected_us = timestamp_us;
+        }
+        voice_latency_trace_.request_sent_us = timestamp_us;
+    } else if (strcmp(stage, "response_received") == 0) {
+        if (voice_latency_trace_.request_sent_us < 0) {
+            return;
+        }
+        voice_latency_trace_.response_received_us = timestamp_us;
+    } else if (strcmp(stage, "playback_start") == 0) {
+        if (voice_latency_trace_.response_received_us < 0) {
+            return;
+        }
+        voice_latency_trace_.playback_start_us = timestamp_us;
+    }
+
+    ESP_LOGI(TAG, "[latency] stage=%s ts_us=%lld", stage, timestamp_us);
+    TryLogVoiceLatency();
+}
+
+void Application::TryLogVoiceLatency() {
+    if (voice_latency_trace_.logged ||
+        voice_latency_trace_.speech_detected_us < 0 ||
+        voice_latency_trace_.request_sent_us < 0 ||
+        voice_latency_trace_.response_received_us < 0 ||
+        voice_latency_trace_.playback_start_us < 0) {
+        return;
+    }
+
+    int64_t uplink_ms = std::max<int64_t>(0, (voice_latency_trace_.request_sent_us - voice_latency_trace_.speech_detected_us) / 1000);
+    int64_t server_ms = std::max<int64_t>(0, (voice_latency_trace_.response_received_us - voice_latency_trace_.request_sent_us) / 1000);
+    int64_t playback_queue_ms = std::max<int64_t>(0, (voice_latency_trace_.playback_start_us - voice_latency_trace_.response_received_us) / 1000);
+    int64_t e2e_ms = std::max<int64_t>(0, (voice_latency_trace_.playback_start_us - voice_latency_trace_.speech_detected_us) / 1000);
+
+    ESP_LOGI(TAG,
+             "[latency] speech_detected_us=%lld request_sent_us=%lld response_received_us=%lld playback_start_us=%lld uplink_ms=%lld server_ms=%lld playback_queue_ms=%lld e2e_ms=%lld",
+             voice_latency_trace_.speech_detected_us,
+             voice_latency_trace_.request_sent_us,
+             voice_latency_trace_.response_received_us,
+             voice_latency_trace_.playback_start_us,
+             uplink_ms,
+             server_ms,
+             playback_queue_ms,
+             e2e_ms);
+    voice_latency_trace_.logged = true;
+}
+
 void Application::Initialize() {
     auto& board = Board::GetInstance();
     SetDeviceState(kDeviceStateStarting);
@@ -81,7 +140,13 @@ void Application::Initialize() {
         xEventGroupSetBits(event_group_, MAIN_EVENT_WAKE_WORD_DETECTED);
     };
     callbacks.on_vad_change = [this](bool speaking) {
+        if (speaking) {
+            RecordVoiceLatencyTimestamp("speech_detected", esp_timer_get_time());
+        }
         xEventGroupSetBits(event_group_, MAIN_EVENT_VAD_CHANGE);
+    };
+    callbacks.on_playback_started = [this]() {
+        RecordVoiceLatencyTimestamp("playback_start", esp_timer_get_time());
     };
     audio_service_.SetCallbacks(callbacks);
 
@@ -219,7 +284,14 @@ void Application::Run() {
 
         if (bits & MAIN_EVENT_SEND_AUDIO) {
             while (auto packet = audio_service_.PopPacketFromSendQueue()) {
-                if (protocol_ && !protocol_->SendAudio(std::move(packet))) {
+                if (protocol_) {
+                    if (voice_latency_trace_.request_sent_us < 0) {
+                        RecordVoiceLatencyTimestamp("request_sent", esp_timer_get_time());
+                    }
+                    if (!protocol_->SendAudio(std::move(packet))) {
+                        break;
+                    }
+                } else {
                     break;
                 }
             }
@@ -497,6 +569,9 @@ void Application::InitializeProtocol() {
     
     protocol_->OnIncomingAudio([this](std::unique_ptr<AudioStreamPacket> packet) {
         if (GetDeviceState() == kDeviceStateSpeaking) {
+            if (voice_latency_trace_.response_received_us < 0) {
+                RecordVoiceLatencyTimestamp("response_received", esp_timer_get_time());
+            }
             audio_service_.PushPacketToDecodeQueue(std::move(packet));
         }
     });
@@ -781,6 +856,9 @@ void Application::HandleWakeWordDetectedEvent() {
     auto state = GetDeviceState();
     auto wake_word = audio_service_.GetLastWakeWord();
     ESP_LOGI(TAG, "Wake word detected: %s (state: %d)", wake_word.c_str(), (int)state);
+    if (voice_latency_trace_.speech_detected_us < 0) {
+        RecordVoiceLatencyTimestamp("speech_detected", esp_timer_get_time());
+    }
 
     if (state == kDeviceStateIdle) {
         audio_service_.EncodeWakeWord();

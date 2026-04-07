@@ -143,6 +143,15 @@ private:
     int clock_ticks_ = 0;
     TaskHandle_t activation_task_handle_ = nullptr;
 
+    struct VoiceLatencyTrace {
+        int64_t speech_detected_us = -1;
+        int64_t request_sent_us = -1;
+        int64_t response_received_us = -1;
+        int64_t playback_start_us = -1;
+        bool logged = false;
+    };
+    VoiceLatencyTrace voice_latency_trace_;
+
 
     // Event handlers
     void HandleStateChangedEvent();
@@ -155,6 +164,8 @@ private:
     void HandleWakeWordDetectedEvent();
     void ContinueOpenAudioChannel(ListeningMode mode);
     void ContinueWakeWordInvoke(const std::string& wake_word);
+    void RecordVoiceLatencyTimestamp(const char* stage, int64_t timestamp_us);
+    void TryLogVoiceLatency();
 
     // Activation task (runs in background)
     void ActivationTask();
