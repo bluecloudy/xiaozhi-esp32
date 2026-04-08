@@ -9,6 +9,8 @@
 #include "mcp_server.h"
 #include "assets.h"
 #include "settings.h"
+#include "text/kid_answer_validator.h"
+#include "text/wake_word_echo_filter.h"
 
 #include <cstring>
 #include <esp_log.h>
@@ -18,7 +20,6 @@
 #include <esp_heap_caps.h>
 #include <font_awesome.h>
 #include <algorithm>
-#include <cctype>
 
 #define TAG "Application"
 
@@ -28,41 +29,36 @@
 
 namespace {
 
-int count_words(const std::string& text) {
-    int words = 0;
-    bool in_word = false;
-    for (char c : text) {
-        if (std::isspace(c)) {
-            in_word = false;
-        } else if (!in_word) {
-            in_word = true;
-            words++;
-        }
-    }
-    return words;
+constexpr bool IsTextNormalizationEnabled() {
+#ifdef CONFIG_ENABLE_TEXT_NORMALIZATION
+    return true;
+#else
+    return false;
+#endif
 }
 
-std::string NormalizeKidInput(std::string text) {
-    std::string normalized;
-    normalized.reserve(text.size());
+constexpr bool IsWakeWordEchoFilterEnabled() {
+#ifdef CONFIG_ENABLE_WAKEWORD_ECHO_FILTER
+    return true;
+#else
+    return false;
+#endif
+}
 
-    bool prev_space = true;
-    for (unsigned char ch : text) {
-        if (std::isspace(ch)) {
-            if (!prev_space) {
-                normalized.push_back(' ');
-            }
-            prev_space = true;
-            continue;
-        }
-        normalized.push_back(static_cast<char>(std::tolower(ch)));
-        prev_space = false;
-    }
+constexpr bool IsKidAnswerValidationFeatureEnabled() {
+#ifdef CONFIG_ENABLE_KID_ANSWER_VALIDATION
+    return true;
+#else
+    return false;
+#endif
+}
 
-    if (!normalized.empty() && normalized.back() == ' ') {
-        normalized.pop_back();
-    }
-    return normalized;
+constexpr bool IsPhoneticNormalizationEnabled() {
+#ifdef CONFIG_ENABLE_PHONETIC_NORMALIZATION
+    return true;
+#else
+    return false;
+#endif
 }
 
 std::string GetAssistantName() {
@@ -76,6 +72,14 @@ static bool s_voice_detected_in_listening = false;
 
 Application::Application() {
     event_group_ = xEventGroupCreate();
+
+    text::TextNormalizationOptions normalization_options = {
+        .enable_text_normalization = IsTextNormalizationEnabled(),
+        .enable_phonetic_normalization = IsPhoneticNormalizationEnabled(),
+    };
+    wake_word_echo_filter_enabled_ = IsWakeWordEchoFilterEnabled();
+    wake_word_echo_filter_ = std::make_unique<text::WakeWordEchoFilter>(normalization_options, wake_word_echo_filter_enabled_);
+    kid_answer_validator_ = std::make_unique<text::KidAnswerValidator>(normalization_options);
 
 #if CONFIG_USE_DEVICE_AEC && CONFIG_USE_SERVER_AEC
 #error "CONFIG_USE_DEVICE_AEC and CONFIG_USE_SERVER_AEC cannot be enabled at the same time"
@@ -651,6 +655,9 @@ void Application::InitializeProtocol() {
     auto& board = Board::GetInstance();
     auto display = board.GetDisplay();
     auto codec = board.GetAudioCodec();
+    Settings system_settings("system", true);
+    kid_answer_validation_enabled_ = IsKidAnswerValidationFeatureEnabled() &&
+                                     system_settings.GetBool("kid_answer_validation_mode", false);
 
     display->SetStatus(Lang::Strings::LOADING_PROTOCOL);
 
@@ -733,19 +740,19 @@ void Application::InitializeProtocol() {
             if (cJSON_IsString(text)) {
                 std::string message = text->valuestring;
                 ESP_LOGI(TAG, ">> %s", message.c_str());
+
+                if (ignore_next_stt_after_wake_ && wake_word_echo_filter_ &&
+                    wake_word_echo_filter_->ShouldFilter(message, last_wake_word_phrase_)) {
+                    ESP_LOGI(TAG, "[stt] ignored wake-echo transcript='%s' wake='%s'",
+                             message.c_str(), last_wake_word_phrase_.c_str());
+                    ignore_next_stt_after_wake_ = false;
+                    return;
+                }
                 
                 // Add context-aware filtering for kids' vocabulary mode
-                if (!message.empty()) {
-                    message = NormalizeKidInput(message);
-                    auto is_valid_kid_answer = [](const std::string& text) {
-                        if (text.empty()) return false;
-                        if (text.length() > 12) return false;        // too long for vocab answer
-                        int words = count_words(text);
-                        if (words > 3) return false;
-                        return true;
-                    };
-
-                    if (!is_valid_kid_answer(message)) {
+                if (kid_answer_validation_enabled_ && !message.empty()) {
+                    auto validation = kid_answer_validator_->Validate(message);
+                    if (!validation.valid) {
                         ESP_LOGW(TAG, "[asr] rejected invalid input raw='%s'", message.c_str());
                         protocol_->SendAbortSpeaking(kAbortReasonNone);
                         
@@ -760,6 +767,7 @@ void Application::InitializeProtocol() {
                         });
                         return; // Do not process or display user message
                     }
+                    message = std::move(validation.normalized_text);
                 }
 
                 Schedule([display, message = std::move(message)]() {
@@ -1046,6 +1054,8 @@ void Application::ContinueWakeWordInvoke(const std::string& wake_word) {
     }
 
     ESP_LOGI(TAG, "Wake word detected: %s", wake_word.c_str());
+    last_wake_word_phrase_ = wake_word;
+    ignore_next_stt_after_wake_ = true;
 #if CONFIG_SEND_WAKE_WORD_DATA
     // Encode and send the wake word data to the server
     while (auto packet = audio_service_.PopWakeWordPacket()) {

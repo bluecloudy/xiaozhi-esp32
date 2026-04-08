@@ -809,6 +809,31 @@ config WAKE_WORD_DETECTION_IN_LISTENING
         which allows interrupting the current conversation.
         When disabled (default), wake word detection is turned off during listening.
 
+config ENABLE_TEXT_NORMALIZATION
+    bool "Enable Text Normalization"
+    default y
+    help
+        Enable generic input normalization helpers (whitespace/lowercase/wake phrase cleanup).
+
+config ENABLE_WAKEWORD_ECHO_FILTER
+    bool "Enable Wake-Word Echo Filter"
+    default y
+    help
+        Filter the first STT transcript if it matches the wake phrase after wake detection.
+
+config ENABLE_KID_ANSWER_VALIDATION
+    bool "Enable Kid Answer Validation"
+    default y
+    help
+        Allow kid-answer validation mode to run when runtime setting kid_answer_validation_mode is enabled.
+
+config ENABLE_PHONETIC_NORMALIZATION
+    bool "Enable Optional Phonetic Normalization"
+    default n
+    depends on ENABLE_TEXT_NORMALIZATION
+    help
+        Enable optional generic phonetic-like normalization in text pipelines.
+
 config USE_AUDIO_PROCESSOR
     bool "Enable Audio Noise Reduction"
     default y
