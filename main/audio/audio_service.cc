@@ -99,7 +99,15 @@ void AudioService::Initialize(AudioCodec* codec) {
 #endif
 
     audio_processor_->OnOutput([this](std::vector<int16_t>&& data) {
-        PushTaskToEncodeQueue(kAudioTaskTypeEncodeToSendQueue, std::move(data));
+        // Never block AFE fetch thread on queue backpressure.
+        if (!TryPushTaskToEncodeQueue(kAudioTaskTypeEncodeToSendQueue, std::move(data))) {
+            encode_drop_count_++;
+            if ((encode_drop_count_ & 0x1F) == 1) {
+                std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+                ESP_LOGW(TAG, "Encode queue full: dropped=%u enc=%u send=%u (avoiding AFE fetch stall)",
+                         encode_drop_count_, audio_encode_queue_.size(), audio_send_queue_.size());
+            }
+        }
     });
 
     audio_processor_->OnVadStateChange([this](bool speaking) {
@@ -507,6 +515,28 @@ void AudioService::PushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t
     audio_queue_cv_.notify_all();
 }
 
+bool AudioService::TryPushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t>&& pcm) {
+    auto task = std::make_unique<AudioTask>();
+    task->type = type;
+    task->pcm = std::move(pcm);
+
+    std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+    if (audio_encode_queue_.size() >= MAX_ENCODE_TASKS_IN_QUEUE) {
+        return false;
+    }
+
+    if (type == kAudioTaskTypeEncodeToSendQueue && !timestamp_queue_.empty()) {
+        if (timestamp_queue_.size() <= MAX_TIMESTAMPS_IN_QUEUE) {
+            task->timestamp = timestamp_queue_.front();
+        }
+        timestamp_queue_.pop_front();
+    }
+
+    audio_encode_queue_.push_back(std::move(task));
+    audio_queue_cv_.notify_all();
+    return true;
+}
+
 bool AudioService::PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait) {
     std::unique_lock<std::mutex> lock(audio_queue_mutex_);
     if (audio_decode_queue_.size() >= MAX_DECODE_PACKETS_IN_QUEUE) {
@@ -576,9 +606,11 @@ void AudioService::EnableWakeWordDetection(bool enable) {
         }
         wake_word_->Start();
         xEventGroupSetBits(event_group_, AS_EVENT_WAKE_WORD_RUNNING);
+        ESP_LOGI(TAG, "WakeWord ON: wake=%d proc=%d", IsWakeWordRunning(), IsAudioProcessorRunning());
     } else {
         wake_word_->Stop();
         xEventGroupClearBits(event_group_, AS_EVENT_WAKE_WORD_RUNNING);
+        ESP_LOGI(TAG, "WakeWord OFF: wake=%d proc=%d", IsWakeWordRunning(), IsAudioProcessorRunning());
     }
 }
 
@@ -603,9 +635,11 @@ void AudioService::EnableVoiceProcessing(bool enable) {
         }
         audio_processor_->Start();
         xEventGroupSetBits(event_group_, AS_EVENT_AUDIO_PROCESSOR_RUNNING);
+        ESP_LOGI(TAG, "VoiceProc ON: wake=%d proc=%d", IsWakeWordRunning(), IsAudioProcessorRunning());
     } else {
         audio_processor_->Stop();
         xEventGroupClearBits(event_group_, AS_EVENT_AUDIO_PROCESSOR_RUNNING);
+        ESP_LOGI(TAG, "VoiceProc OFF: wake=%d proc=%d", IsWakeWordRunning(), IsAudioProcessorRunning());
     }
 }
 
