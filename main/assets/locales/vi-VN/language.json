@@ -54,6 +54,20 @@
         "HELLO_MY_FRIEND": "Xin chào, bạn của tôi!",
         "FLIGHT_MODE_OFF": "Chế độ máy bay đang tắt",
         "FLIGHT_MODE_ON": "Chế độ máy bay đang bật",
-        "MODEM_INIT_ERROR": "Khởi tạo modem thất bại"
-    }
+        "MODEM_INIT_ERROR": "Khởi tạo modem thất bại",
+        "REPROMPT_SHORT": "Chỉ cần nói 1 từ thôi nha!",
+        "REPROMPT_NAME": "Oops, %s chưa nghe rõ. Bạn nói lại 1 từ thôi nhé!",
+        "UPGRADE_SUCCESS": "Nâng cấp thành công, đang khởi động lại...",
+        "ASSISTANT_NAME": "Trợ lý"
+    },
+    "phoneme_map": [
+        {
+            "from": "san",
+            "to": "sun"
+        },
+        {
+            "from": "phit",
+            "to": "fish"
+        }
+    ]
 }

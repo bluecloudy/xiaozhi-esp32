@@ -22,6 +22,58 @@
 
 #define TAG "Application"
 
+#ifndef CONFIG_TTS_GRACE_PERIOD_MS
+#define CONFIG_TTS_GRACE_PERIOD_MS 400
+#endif
+
+namespace {
+
+int count_words(const std::string& text) {
+    int words = 0;
+    bool in_word = false;
+    for (char c : text) {
+        if (std::isspace(c)) {
+            in_word = false;
+        } else if (!in_word) {
+            in_word = true;
+            words++;
+        }
+    }
+    return words;
+}
+
+std::string NormalizeKidInput(std::string text) {
+    std::string normalized;
+    normalized.reserve(text.size());
+
+    bool prev_space = true;
+    for (unsigned char ch : text) {
+        if (std::isspace(ch)) {
+            if (!prev_space) {
+                normalized.push_back(' ');
+            }
+            prev_space = true;
+            continue;
+        }
+        normalized.push_back(static_cast<char>(std::tolower(ch)));
+        prev_space = false;
+    }
+
+    if (!normalized.empty() && normalized.back() == ' ') {
+        normalized.pop_back();
+    }
+    return normalized;
+}
+
+std::string GetAssistantName() {
+    Settings settings("system", true);
+    return settings.GetString("assistant_name", Lang::Strings::ASSISTANT_NAME);
+}
+
+} // namespace
+
+static bool s_voice_detected_in_listening = false;
+
 Application::Application() {
     event_group_ = xEventGroupCreate();
 
@@ -338,6 +390,9 @@ void Application::Run() {
             if (GetDeviceState() == kDeviceStateListening) {
                 auto led = Board::GetInstance().GetLed();
                 led->OnStateChanged();
+                if (audio_service_.IsVoiceDetected()) {
+                    s_voice_detected_in_listening = true;
+                }
             }
         }
 
@@ -355,6 +410,25 @@ void Application::Run() {
             auto display = Board::GetInstance().GetDisplay();
             display->UpdateStatusBar();
         
+            if (GetDeviceState() == kDeviceStateListening) {
+                if (clock_ticks_ >= 5 && !s_voice_detected_in_listening) {
+                    ESP_LOGW(TAG, "[asr] listening window timeout");
+                    if (protocol_) {
+                        protocol_->SendAbortSpeaking(kAbortReasonNone);
+                    }
+                    std::string reprompt = Lang::Strings::REPROMPT_SHORT;
+                    Schedule([this, reprompt]() {
+                        if (GetDeviceState() == kDeviceStateListening) {
+                            auto display = Board::GetInstance().GetDisplay();
+                            display->SetChatMessage("system", reprompt.c_str());
+                            // Restart listening state to maintain turn
+                            SetDeviceState(kDeviceStateListening);
+                        }
+                    });
+                    clock_ticks_ = 0;
+                }
+            }
+
             // Print debug info every 10 seconds
                 SystemInfo::PrintHeapStats();
         }
@@ -657,8 +731,38 @@ void Application::InitializeProtocol() {
         } else if (strcmp(type->valuestring, "stt") == 0) {
             auto text = cJSON_GetObjectItem(root, "text");
             if (cJSON_IsString(text)) {
-                ESP_LOGI(TAG, ">> %s", text->valuestring);
-                Schedule([display, message = std::string(text->valuestring)]() {
+                std::string message = text->valuestring;
+                ESP_LOGI(TAG, ">> %s", message.c_str());
+                
+                // Add context-aware filtering for kids' vocabulary mode
+                if (!message.empty()) {
+                    message = NormalizeKidInput(message);
+                    auto is_valid_kid_answer = [](const std::string& text) {
+                        if (text.empty()) return false;
+                        if (text.length() > 12) return false;        // too long for vocab answer
+                        int words = count_words(text);
+                        if (words > 3) return false;
+                        return true;
+                    };
+
+                    if (!is_valid_kid_answer(message)) {
+                        ESP_LOGW(TAG, "[asr] rejected invalid input raw='%s'", message.c_str());
+                        protocol_->SendAbortSpeaking(kAbortReasonNone);
+                        
+                        char buffer[256];
+                        snprintf(buffer, sizeof(buffer), Lang::Strings::REPROMPT_NAME, GetAssistantName().c_str());
+                        std::string reprompt = buffer;
+                        Schedule([this, display, reprompt]() {
+                            if (GetDeviceState() == kDeviceStateListening) {
+                                display->SetChatMessage("system", reprompt.c_str());
+                                SetDeviceState(kDeviceStateListening);
+                            }
+                        });
+                        return; // Do not process or display user message
+                    }
+                }
+
+                Schedule([display, message = std::move(message)]() {
                     display->SetChatMessage("user", message.c_str());
                 });
             }
@@ -984,6 +1088,7 @@ void Application::HandleStateChangedEvent() {
         case kDeviceStateListening:
             display->SetStatus(Lang::Strings::LISTENING);
             display->SetEmotion("neutral");
+            s_voice_detected_in_listening = false;
 
             // Make sure the audio processor is running
             if (play_popup_on_listening_ || !audio_service_.IsAudioProcessorRunning()) {
@@ -991,6 +1096,7 @@ void Application::HandleStateChangedEvent() {
                 // This prevents audio truncation when STOP arrives late due to network jitter
                 if (listening_mode_ == kListeningModeAutoStop) {
                     audio_service_.WaitForPlaybackQueueEmpty();
+                    vTaskDelay(pdMS_TO_TICKS(CONFIG_TTS_GRACE_PERIOD_MS)); // Grace period after TTS to prevent echo
                 }
                 
                 // Send the start listening command
@@ -1115,7 +1221,7 @@ bool Application::UpgradeFirmware(const std::string& url, const std::string& ver
     } else {
         // Upgrade success, reboot immediately
         ESP_LOGI(TAG, "Firmware upgrade successful, rebooting...");
-        display->SetChatMessage("system", "Upgrade successful, rebooting...");
+        display->SetChatMessage("system", Lang::Strings::UPGRADE_SUCCESS);
         vTaskDelay(pdMS_TO_TICKS(1000)); // Brief pause to show message
         Reboot();
         return true;

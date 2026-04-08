@@ -54,6 +54,20 @@
         "FOUND_NEW_ASSETS": "Found new assets: %s",
         "DOWNLOAD_ASSETS_FAILED": "Failed to download assets",
         "LOADING_ASSETS": "Loading assets...",
-        "HELLO_MY_FRIEND": "Hello, my friend!"
-    }
+        "HELLO_MY_FRIEND": "Hello, my friend!",
+        "REPROMPT_SHORT": "Just say one word please!",
+        "REPROMPT_NAME": "Oops, %s didn't hear that clearly. Please say just one word!",
+        "UPGRADE_SUCCESS": "Upgrade successful, rebooting...",
+        "ASSISTANT_NAME": "Assistant"
+    },
+    "phoneme_map": [
+        {
+            "from": "san",
+            "to": "sun"
+        },
+        {
+            "from": "phit",
+            "to": "fish"
+        }
+    ]
 }
