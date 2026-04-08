@@ -144,7 +144,9 @@ private:
     TaskHandle_t activation_task_handle_ = nullptr;
 
     struct VoiceLatencyTrace {
-        int64_t speech_detected_us = -1;
+        int64_t wake_detected_us = -1;
+        int64_t speech_start_us = -1;
+        int64_t speech_end_us = -1;
         int64_t request_sent_us = -1;
         int64_t response_received_us = -1;
         int64_t playback_start_us = -1;

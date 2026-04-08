@@ -64,26 +64,36 @@ void Application::RecordVoiceLatencyTimestamp(const char* stage, int64_t timesta
         voice_latency_trace_ = VoiceLatencyTrace{};
     }
 
-    if (strcmp(stage, "speech_detected") == 0) {
-        if (voice_latency_trace_.request_sent_us >= 0 || voice_latency_trace_.response_received_us >= 0) {
-            voice_latency_trace_ = VoiceLatencyTrace{};
+    if (strcmp(stage, "wake_detected") == 0) {
+        voice_latency_trace_ = VoiceLatencyTrace{};
+        voice_latency_trace_.wake_detected_us = timestamp_us;
+    } else if (strcmp(stage, "speech_start") == 0) {
+        if (voice_latency_trace_.wake_detected_us < 0 || voice_latency_trace_.speech_start_us >= 0) {
+            return;
         }
-        voice_latency_trace_.speech_detected_us = timestamp_us;
+        voice_latency_trace_.speech_start_us = timestamp_us;
+    } else if (strcmp(stage, "speech_end") == 0) {
+        if (voice_latency_trace_.speech_start_us < 0 || voice_latency_trace_.speech_end_us >= 0) {
+            return;
+        }
+        voice_latency_trace_.speech_end_us = timestamp_us;
     } else if (strcmp(stage, "request_sent") == 0) {
-        if (voice_latency_trace_.speech_detected_us < 0) {
-            voice_latency_trace_.speech_detected_us = timestamp_us;
+        if (voice_latency_trace_.speech_end_us < 0 || voice_latency_trace_.request_sent_us >= 0) {
+            return;
         }
         voice_latency_trace_.request_sent_us = timestamp_us;
     } else if (strcmp(stage, "response_received") == 0) {
-        if (voice_latency_trace_.request_sent_us < 0) {
+        if (voice_latency_trace_.request_sent_us < 0 || voice_latency_trace_.response_received_us >= 0) {
             return;
         }
         voice_latency_trace_.response_received_us = timestamp_us;
     } else if (strcmp(stage, "playback_start") == 0) {
-        if (voice_latency_trace_.response_received_us < 0) {
+        if (voice_latency_trace_.response_received_us < 0 || voice_latency_trace_.playback_start_us >= 0) {
             return;
         }
         voice_latency_trace_.playback_start_us = timestamp_us;
+    } else {
+        return;
     }
 
     auto ts_us_str = std::to_string(timestamp_us);
@@ -93,33 +103,42 @@ void Application::RecordVoiceLatencyTimestamp(const char* stage, int64_t timesta
 
 void Application::TryLogVoiceLatency() {
     if (voice_latency_trace_.logged ||
-        voice_latency_trace_.speech_detected_us < 0 ||
+        voice_latency_trace_.wake_detected_us < 0 ||
+        voice_latency_trace_.speech_start_us < 0 ||
+        voice_latency_trace_.speech_end_us < 0 ||
         voice_latency_trace_.request_sent_us < 0 ||
         voice_latency_trace_.response_received_us < 0 ||
         voice_latency_trace_.playback_start_us < 0) {
         return;
     }
 
-    int64_t uplink_ms = std::max<int64_t>(0, (voice_latency_trace_.request_sent_us - voice_latency_trace_.speech_detected_us) / 1000);
+    int64_t wake_to_speech_start_ms = std::max<int64_t>(0, (voice_latency_trace_.speech_start_us - voice_latency_trace_.wake_detected_us) / 1000);
+    int64_t uplink_ms = std::max<int64_t>(0, (voice_latency_trace_.request_sent_us - voice_latency_trace_.speech_end_us) / 1000);
     int64_t server_ms = std::max<int64_t>(0, (voice_latency_trace_.response_received_us - voice_latency_trace_.request_sent_us) / 1000);
     int64_t playback_queue_ms = std::max<int64_t>(0, (voice_latency_trace_.playback_start_us - voice_latency_trace_.response_received_us) / 1000);
-    int64_t e2e_ms = std::max<int64_t>(0, (voice_latency_trace_.playback_start_us - voice_latency_trace_.speech_detected_us) / 1000);
+    int64_t e2e_ms = std::max<int64_t>(0, (voice_latency_trace_.playback_start_us - voice_latency_trace_.wake_detected_us) / 1000);
 
-    auto speech_detected_us_str = std::to_string(voice_latency_trace_.speech_detected_us);
+    auto wake_detected_us_str = std::to_string(voice_latency_trace_.wake_detected_us);
+    auto speech_start_us_str = std::to_string(voice_latency_trace_.speech_start_us);
+    auto speech_end_us_str = std::to_string(voice_latency_trace_.speech_end_us);
     auto request_sent_us_str = std::to_string(voice_latency_trace_.request_sent_us);
     auto response_received_us_str = std::to_string(voice_latency_trace_.response_received_us);
     auto playback_start_us_str = std::to_string(voice_latency_trace_.playback_start_us);
+    auto wake_to_speech_start_ms_str = std::to_string(wake_to_speech_start_ms);
     auto uplink_ms_str = std::to_string(uplink_ms);
     auto server_ms_str = std::to_string(server_ms);
     auto playback_queue_ms_str = std::to_string(playback_queue_ms);
     auto e2e_ms_str = std::to_string(e2e_ms);
 
     ESP_LOGI(TAG,
-             "[latency] speech_detected_us=%s request_sent_us=%s response_received_us=%s playback_start_us=%s uplink_ms=%s server_ms=%s playback_queue_ms=%s e2e_ms=%s",
-             speech_detected_us_str.c_str(),
+             "[latency] wake_detected_us=%s speech_start_us=%s speech_end_us=%s request_sent_us=%s response_received_us=%s playback_start_us=%s wake_to_speech_start_ms=%s uplink_ms=%s server_ms=%s playback_queue_ms=%s e2e_ms=%s",
+             wake_detected_us_str.c_str(),
+             speech_start_us_str.c_str(),
+             speech_end_us_str.c_str(),
              request_sent_us_str.c_str(),
              response_received_us_str.c_str(),
              playback_start_us_str.c_str(),
+             wake_to_speech_start_ms_str.c_str(),
              uplink_ms_str.c_str(),
              server_ms_str.c_str(),
              playback_queue_ms_str.c_str(),
@@ -152,7 +171,9 @@ void Application::Initialize() {
     };
     callbacks.on_vad_change = [this](bool speaking) {
         if (speaking) {
-            RecordVoiceLatencyTimestamp("speech_detected", esp_timer_get_time());
+            RecordVoiceLatencyTimestamp("speech_start", esp_timer_get_time());
+        } else {
+            RecordVoiceLatencyTimestamp("speech_end", esp_timer_get_time());
         }
         xEventGroupSetBits(event_group_, MAIN_EVENT_VAD_CHANGE);
     };
@@ -868,11 +889,9 @@ void Application::HandleWakeWordDetectedEvent() {
     auto state = GetDeviceState();
     auto wake_word = audio_service_.GetLastWakeWord();
     ESP_LOGI(TAG, "Wake trigger source=voice event, phrase=%s, state=%d", wake_word.c_str(), (int)state);
-    if (voice_latency_trace_.speech_detected_us < 0) {
-        RecordVoiceLatencyTimestamp("speech_detected", esp_timer_get_time());
-    }
 
     if (state == kDeviceStateIdle) {
+        RecordVoiceLatencyTimestamp("wake_detected", esp_timer_get_time());
         audio_service_.EncodeWakeWord();
         auto wake_word = audio_service_.GetLastWakeWord();
 
