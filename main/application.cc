@@ -147,6 +147,7 @@ void Application::Initialize() {
         xEventGroupSetBits(event_group_, MAIN_EVENT_SEND_AUDIO);
     };
     callbacks.on_wake_word_detected = [this](const std::string& wake_word) {
+        ESP_LOGI(TAG, "Wake trigger source=voice callback, phrase=%s", wake_word.c_str());
         xEventGroupSetBits(event_group_, MAIN_EVENT_WAKE_WORD_DETECTED);
     };
     callbacks.on_vad_change = [this](bool speaking) {
@@ -745,6 +746,7 @@ void Application::DismissAlert() {
 }
 
 void Application::ToggleChatState() {
+    ESP_LOGI(TAG, "Wake trigger source=button");
     xEventGroupSetBits(event_group_, MAIN_EVENT_TOGGLE_CHAT);
 }
 
@@ -865,7 +867,7 @@ void Application::HandleWakeWordDetectedEvent() {
 
     auto state = GetDeviceState();
     auto wake_word = audio_service_.GetLastWakeWord();
-    ESP_LOGI(TAG, "Wake word detected: %s (state: %d)", wake_word.c_str(), (int)state);
+    ESP_LOGI(TAG, "Wake trigger source=voice event, phrase=%s, state=%d", wake_word.c_str(), (int)state);
     if (voice_latency_trace_.speech_detected_us < 0) {
         RecordVoiceLatencyTimestamp("speech_detected", esp_timer_get_time());
     }

@@ -552,6 +552,8 @@ std::unique_ptr<AudioStreamPacket> AudioService::PopWakeWordPacket() {
 
 void AudioService::EnableWakeWordDetection(bool enable) {
     if (!wake_word_) {
+        ESP_LOGW(TAG, "Wake word detection %s but wake_word_ is null (models not loaded or wake word disabled)",
+                 enable ? "requested" : "stop requested");
         return;
     }
 
@@ -705,18 +707,41 @@ void AudioService::SetModelsList(srmodel_list_t* models_list) {
     models_list_ = models_list;
 
 #if CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32P4
-    if (esp_srmodel_filter(models_list_, ESP_MN_PREFIX, NULL) != nullptr) {
-        wake_word_ = std::make_unique<CustomWakeWord>();
-    } else if (esp_srmodel_filter(models_list_, ESP_WN_PREFIX, NULL) != nullptr) {
-        wake_word_ = std::make_unique<AfeWakeWord>();
+    if (models_list_ != nullptr) {
+        if (esp_srmodel_filter(models_list_, ESP_MN_PREFIX, NULL) != nullptr) {
+            wake_word_ = std::make_unique<CustomWakeWord>();
+            ESP_LOGI(TAG, "Wake word backend: CustomWakeWord (from assets srmodels)");
+        } else if (esp_srmodel_filter(models_list_, ESP_WN_PREFIX, NULL) != nullptr) {
+            wake_word_ = std::make_unique<AfeWakeWord>();
+            ESP_LOGI(TAG, "Wake word backend: AfeWakeWord (from assets srmodels)");
+        } else {
+            wake_word_ = nullptr;
+            ESP_LOGW(TAG, "No compatible wake-word model found in assets srmodels");
+        }
     } else {
+    #if CONFIG_USE_CUSTOM_WAKE_WORD
+        wake_word_ = std::make_unique<CustomWakeWord>();
+        ESP_LOGI(TAG, "Wake word backend: CustomWakeWord (from sdkconfig defaults)");
+    #elif CONFIG_USE_AFE_WAKE_WORD
+        wake_word_ = std::make_unique<AfeWakeWord>();
+        ESP_LOGI(TAG, "Wake word backend: AfeWakeWord (from sdkconfig defaults)");
+    #else
         wake_word_ = nullptr;
+        ESP_LOGI(TAG, "Wake word backend: disabled by sdkconfig");
+    #endif
     }
 #else
-    if (esp_srmodel_filter(models_list_, ESP_WN_PREFIX, NULL) != nullptr) {
+    if (models_list_ != nullptr && esp_srmodel_filter(models_list_, ESP_WN_PREFIX, NULL) != nullptr) {
         wake_word_ = std::make_unique<EspWakeWord>();
+        ESP_LOGI(TAG, "Wake word backend: EspWakeWord (from assets srmodels)");
     } else {
+    #if CONFIG_USE_ESP_WAKE_WORD
+        wake_word_ = std::make_unique<EspWakeWord>();
+        ESP_LOGI(TAG, "Wake word backend: EspWakeWord (from sdkconfig defaults)");
+    #else
         wake_word_ = nullptr;
+        ESP_LOGI(TAG, "Wake word backend: disabled by sdkconfig");
+    #endif
     }
 #endif
 

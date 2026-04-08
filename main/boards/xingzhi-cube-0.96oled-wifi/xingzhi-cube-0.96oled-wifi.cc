@@ -133,6 +133,7 @@ private:
         boot_button_.OnClick([this]() {
             power_save_timer_->WakeUp();
             auto& app = Application::GetInstance();
+            ESP_LOGI(TAG, "Wake trigger source=button, state=%d", (int)app.GetDeviceState());
             if (app.GetDeviceState() == kDeviceStateStarting) {
                 EnterWifiConfigMode();
                 return;
@@ -203,15 +204,12 @@ public:
     }
 
     virtual bool GetBatteryLevel(int& level, bool& charging, bool& discharging) override {
-        static bool last_discharging = false;
-        charging = power_manager_->IsCharging();
-        discharging = power_manager_->IsDischarging();
-        if (discharging != last_discharging) {
-            power_save_timer_->SetEnabled(discharging);
-            last_discharging = discharging;
-        }
-        level = power_manager_->GetBatteryLevel();
-        return true;
+        // This board profile may be powered from a 5V boost module without a valid battery ADC path.
+        // Disable battery reporting to avoid false low-battery popups/UI overlays.
+        level = 100;
+        charging = false;
+        discharging = false;
+        return false;
     }
 
     virtual void SetPowerSaveLevel(PowerSaveLevel level) override {

@@ -8,8 +8,30 @@
 #include <esp_mn_models.h>
 #include <esp_mn_speech_commands.h>
 #include <cJSON.h>
+#include <cctype>
 
 #define TAG "CustomWakeWord"
+
+static std::string NormalizeWakeCommand(const std::string& input) {
+    std::string out;
+    out.reserve(input.size());
+    bool prev_space = true;
+    for (unsigned char ch : input) {
+        if (std::isspace(ch)) {
+            if (!prev_space) {
+                out.push_back(' ');
+            }
+            prev_space = true;
+            continue;
+        }
+        out.push_back(static_cast<char>(std::tolower(ch)));
+        prev_space = false;
+    }
+    if (!out.empty() && out.back() == ' ') {
+        out.pop_back();
+    }
+    return out;
+}
 
 CustomWakeWord::CustomWakeWord()
     : wake_word_pcm_(), wake_word_opus_() {
@@ -71,8 +93,9 @@ void CustomWakeWord::ParseWakenetModelConfig() {
                     cJSON* text = cJSON_GetObjectItem(command, "text");
                     cJSON* action = cJSON_GetObjectItem(command, "action");
                     if (cJSON_IsString(command_name) && cJSON_IsString(text) && cJSON_IsString(action)) {
-                        commands_.push_back({command_name->valuestring, text->valuestring, action->valuestring});
-                        ESP_LOGI(TAG, "Command: %s, Text: %s, Action: %s", command_name->valuestring, text->valuestring, action->valuestring);
+                        auto normalized_command = NormalizeWakeCommand(command_name->valuestring);
+                        commands_.push_back({normalized_command, text->valuestring, action->valuestring});
+                        ESP_LOGI(TAG, "Command: %s, Text: %s, Action: %s", normalized_command.c_str(), text->valuestring, action->valuestring);
                     }
                 }
             }
@@ -95,11 +118,17 @@ bool CustomWakeWord::Initialize(AudioCodec* codec, srmodel_list_t* models_list) 
         models_ = esp_srmodel_init("model");
 #ifdef CONFIG_CUSTOM_WAKE_WORD
         threshold_ = CONFIG_CUSTOM_WAKE_WORD_THRESHOLD / 100.0f;
-        commands_.push_back({CONFIG_CUSTOM_WAKE_WORD, CONFIG_CUSTOM_WAKE_WORD_DISPLAY, "wake"});
+        auto normalized_command = NormalizeWakeCommand(CONFIG_CUSTOM_WAKE_WORD);
+        commands_.push_back({normalized_command, CONFIG_CUSTOM_WAKE_WORD_DISPLAY, "wake"});
 #endif
     } else {
         models_ = models_list;
         ParseWakenetModelConfig();
+    }
+
+    if (commands_.empty()) {
+        ESP_LOGE(TAG, "No custom wake commands configured");
+        return false;
     }
 
     if (models_ == nullptr || models_->num == -1) {
@@ -122,11 +151,30 @@ bool CustomWakeWord::Initialize(AudioCodec* codec, srmodel_list_t* models_list) 
     multinet_ = esp_mn_handle_from_name(mn_name_);
     multinet_model_data_ = multinet_->create(mn_name_, duration_);
     multinet_->set_det_threshold(multinet_model_data_, threshold_);
+    ESP_LOGI(TAG, "Multinet initialized: model=%s lang=%s duration=%d threshold=%.2f command_count=%d",
+             mn_name_, language_.c_str(), duration_, threshold_, (int)commands_.size());
     esp_mn_commands_clear();
     for (int i = 0; i < commands_.size(); i++) {
-        esp_mn_commands_add(i + 1, commands_[i].command.c_str());
+        ESP_LOGI(TAG, "Register wake command[%d]: %s", i + 1, commands_[i].command.c_str());
+        esp_err_t add_err = esp_mn_commands_add(i + 1, commands_[i].command.c_str());
+        if (add_err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to register wake command[%d]: %s, err=%s", i + 1,
+                     commands_[i].command.c_str(), esp_err_to_name(add_err));
+            return false;
+        }
     }
-    esp_mn_commands_update();
+    esp_mn_error_t* mn_errors = esp_mn_commands_update();
+    if (mn_errors != nullptr) {
+        ESP_LOGE(TAG, "MN_COMMAND update failed: invalid phrase count=%d", mn_errors->num);
+        for (int i = 0; i < mn_errors->num; ++i) {
+            auto* phrase = mn_errors->phrases[i];
+            ESP_LOGE(TAG, "Invalid phrase[%d]: command_id=%d string=%s", i,
+                     phrase ? phrase->command_id : -1,
+                     (phrase && phrase->string) ? phrase->string : "<null>");
+        }
+        return false;
+    }
+    ESP_LOGI(TAG, "MN_COMMAND update passed for %d command(s)", (int)commands_.size());
     
     multinet_->print_active_speech_commands(multinet_model_data_);
     return true;
@@ -181,6 +229,8 @@ void CustomWakeWord::Feed(const std::vector<int16_t>& data) {
                         mn_result->command_id[i], mn_result->string, mn_result->prob[i]);
                 auto& command = commands_[mn_result->command_id[i] - 1];
                 if (command.action == "wake") {
+                    ESP_LOGI(TAG, "Custom phrase matched: command=%s display=%s model=%s prob=%f",
+                         command.command.c_str(), command.text.c_str(), mn_name_, mn_result->prob[i]);
                     last_detected_wake_word_ = command.text;
                     running_ = false;
                     input_buffer_.clear();
