@@ -153,7 +153,6 @@ private:
         bool logged = false;
     };
     VoiceLatencyTrace voice_latency_trace_;
-    bool story_request_pending_ = false;
 
 
     // Event handlers
@@ -169,7 +168,6 @@ private:
     void ContinueWakeWordInvoke(const std::string& wake_word);
     void RecordVoiceLatencyTimestamp(const char* stage, int64_t timestamp_us);
     void TryLogVoiceLatency();
-    void LogSramCheckpoint(const char* stage);
 
     // Activation task (runs in background)
     void ActivationTask();

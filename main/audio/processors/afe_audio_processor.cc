@@ -186,10 +186,26 @@ void AfeAudioProcessor::AudioProcessorTask() {
     ESP_LOGI(TAG, "Audio communication task started, feed size: %d fetch size: %d",
         feed_size, fetch_size);
 
+    int fetch_timeout_ms = 200;
+#ifdef CONFIG_AFE_FETCH_TIMEOUT_MS
+    fetch_timeout_ms = CONFIG_AFE_FETCH_TIMEOUT_MS;
+#endif
+
+    if (fetch_timeout_ms <= 0) {
+        ESP_LOGI(TAG, "[afe] portMAX_DELAY enabled (expert mode)");
+    } else {
+        ESP_LOGI(TAG, "[afe] fetch timeout=%dms", fetch_timeout_ms);
+    }
+
     while (true) {
         xEventGroupWaitBits(event_group_, PROCESSOR_RUNNING, pdFALSE, pdTRUE, portMAX_DELAY);
 
-        auto res = afe_iface_->fetch_with_delay(afe_data_, portMAX_DELAY);
+        // Use a bounded timeout (200ms default) so the fetch thread wakes up periodically and
+        // can observe state changes after a Stop()->Start() cycle without blocking indefinitely.
+        // If fetch returns nullptr (timeout), the nullptr check below discards it safely.
+        // portMAX_DELAY is used only if configured to <= 0.
+        TickType_t delay = fetch_timeout_ms > 0 ? pdMS_TO_TICKS(fetch_timeout_ms) : portMAX_DELAY;
+        auto res = afe_iface_->fetch_with_delay(afe_data_, delay);
         if ((xEventGroupGetBits(event_group_) & PROCESSOR_RUNNING) == 0) {
             continue;
         }

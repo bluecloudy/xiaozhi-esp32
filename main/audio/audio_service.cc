@@ -1,6 +1,7 @@
 #include "audio_service.h"
 #include <esp_log.h>
 #include <cstring>
+#include "esp_heap_caps.h"
 
 #define RATE_CVT_CFG(_src_rate, _dest_rate, _channel)        \
     (esp_ae_rate_cvt_cfg_t)                                  \
@@ -42,6 +43,12 @@ AudioService::AudioService() {
 }
 
 AudioService::~AudioService() {
+    if (opus_codec_task_stack_ != nullptr) {
+        heap_caps_free(opus_codec_task_stack_);
+    }
+    if (opus_codec_task_buffer_ != nullptr) {
+        heap_caps_free(opus_codec_task_buffer_);
+    }
     if (event_group_ != nullptr) {
         vEventGroupDelete(event_group_);
     }
@@ -167,11 +174,20 @@ void AudioService::Start() {
 #endif
 
     /* Start the opus codec task */
-    xTaskCreate([](void* arg) {
+    const size_t opus_stack_size = 2048 * 14;
+    if (opus_codec_task_stack_ == nullptr) {
+        opus_codec_task_stack_ = (StackType_t*)heap_caps_malloc(opus_stack_size, MALLOC_CAP_SPIRAM);
+        assert(opus_codec_task_stack_ != nullptr);
+    }
+    if (opus_codec_task_buffer_ == nullptr) {
+        opus_codec_task_buffer_ = (StaticTask_t*)heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL);
+        assert(opus_codec_task_buffer_ != nullptr);
+    }
+    opus_codec_task_handle_ = xTaskCreateStatic([](void* arg) {
         AudioService* audio_service = (AudioService*)arg;
         audio_service->OpusCodecTask();
         vTaskDelete(NULL);
-    }, "opus_codec", 2048 * 12, this, 2, &opus_codec_task_handle_);
+    }, "opus_codec", opus_stack_size, this, 2, opus_codec_task_stack_, opus_codec_task_buffer_);
 }
 
 void AudioService::Stop() {

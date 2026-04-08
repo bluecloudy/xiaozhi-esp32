@@ -169,24 +169,27 @@ bool MqttProtocol::SendAudio(std::unique_ptr<AudioStreamPacket> packet) {
         return false;
     }
 
-    std::string nonce(aes_nonce_);
-    *(uint16_t*)&nonce[2] = htons(packet->payload.size());
-    *(uint32_t*)&nonce[8] = htonl(packet->timestamp);
-    *(uint32_t*)&nonce[12] = htonl(++local_sequence_);
+    // Reuse pre-allocated buffers to avoid per-call heap allocations on the 16Hz audio path.
+    // nonce_buffer_ and send_buffer_ are reserved in OpenAudioChannel().
+    nonce_buffer_.assign(aes_nonce_);
+    *(uint16_t*)&nonce_buffer_[2] = htons(packet->payload.size());
+    *(uint32_t*)&nonce_buffer_[8] = htonl(packet->timestamp);
+    *(uint32_t*)&nonce_buffer_[12] = htonl(++local_sequence_);
 
-    std::string encrypted;
-    encrypted.resize(aes_nonce_.size() + packet->payload.size());
-    memcpy(encrypted.data(), nonce.data(), nonce.size());
+    send_buffer_.resize(aes_nonce_.size() + packet->payload.size());
+    memcpy(send_buffer_.data(), nonce_buffer_.data(), nonce_buffer_.size());
 
     size_t nc_off = 0;
     uint8_t stream_block[16] = {0};
-    if (mbedtls_aes_crypt_ctr(&aes_ctx_, packet->payload.size(), &nc_off, (uint8_t*)nonce.c_str(), stream_block,
-        (uint8_t*)packet->payload.data(), (uint8_t*)&encrypted[nonce.size()]) != 0) {
+    if (mbedtls_aes_crypt_ctr(&aes_ctx_, packet->payload.size(), &nc_off,
+            (uint8_t*)nonce_buffer_.c_str(), stream_block,
+            (uint8_t*)packet->payload.data(),
+            (uint8_t*)&send_buffer_[nonce_buffer_.size()]) != 0) {
         ESP_LOGE(TAG, "Failed to encrypt audio data");
         return false;
     }
 
-    return udp_->Send(encrypted) > 0;
+    return udp_->Send(send_buffer_) > 0;
 }
 
 void MqttProtocol::CloseAudioChannel(bool send_goodbye) {
@@ -287,6 +290,11 @@ bool MqttProtocol::OpenAudioChannel() {
     });
 
     udp_->Connect(udp_server_, udp_port_);
+
+    // Pre-allocate send buffers: nonce (16 bytes) + max opus payload (~200 bytes).
+    // This eliminates per-call heap pressure on the hot audio send path.
+    nonce_buffer_.reserve(aes_nonce_.size());
+    send_buffer_.reserve(aes_nonce_.size() + 200);
 
     if (on_audio_channel_opened_ != nullptr) {
         on_audio_channel_opened_();

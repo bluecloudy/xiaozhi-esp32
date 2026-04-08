@@ -57,6 +57,12 @@ private:
     void ParseServerHello(const cJSON* root);
     std::string DecodeHexString(const std::string& hex_string);
 
+    // Pre-allocated send buffers to avoid per-call heap churn on the 16Hz audio hot path.
+    // Reserved in OpenAudioChannel() after the AES nonce size is known.
+    std::string send_buffer_;
+    std::string nonce_buffer_;
+
+
     bool SendText(const std::string& text) override;
     std::string GetHelloMessage();
 };

@@ -835,6 +835,13 @@ config AUDIO_VAD_MIN_NOISE_MS
         Minimum duration of non-speech before VAD reports silence.
         Slightly increasing this value helps avoid cutting off short high-pitch syllables.
 
+config AFE_FETCH_TIMEOUT_MS
+    int "AFE fetch timeout duration (ms)"
+    default 200
+    depends on USE_AUDIO_PROCESSOR
+    help
+        Using 0 or negative enables portMAX_DELAY and may cause deadlock if Stop->Start is not handled correctly
+
 config USE_DEVICE_AEC
     bool "Enable Device-Side AEC"
     default n

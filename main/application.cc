@@ -22,102 +22,6 @@
 
 #define TAG "Application"
 
-namespace {
-
-std::string ToLowerAscii(std::string text) {
-    for (char& ch : text) {
-        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-    }
-    return text;
-}
-
-bool ContainsAny(const std::string& text, std::initializer_list<const char*> tokens) {
-    for (const char* token : tokens) {
-        if (text.find(token) != std::string::npos) {
-            return true;
-        }
-    }
-    return false;
-}
-
-bool IsStoryRequestText(const std::string& text) {
-    auto lower = ToLowerAscii(text);
-    if (ContainsAny(lower, {"story", "bedtime story", "fairy tale", "tell me a story"})) {
-        return true;
-    }
-    return text.find("故事") != std::string::npos ||
-           text.find("童话") != std::string::npos ||
-           text.find("讲个") != std::string::npos;
-}
-
-std::string SanitizeAssistantText(const std::string& text) {
-    std::string out;
-    size_t start = 0;
-    while (start < text.size()) {
-        size_t end = text.find('\n', start);
-        if (end == std::string::npos) {
-            end = text.size();
-        }
-        std::string line = text.substr(start, end - start);
-        size_t first = line.find_first_not_of(" \t\r");
-        if (first != std::string::npos) {
-            std::string trimmed = line.substr(first);
-            auto lower = ToLowerAscii(trimmed);
-            bool internal = trimmed[0] == '%' || ContainsAny(lower, {
-                "search_knowledge",
-                "tools/call",
-                "tool_call",
-                "function_call",
-                "mcp",
-                "internal error",
-                "stack trace"
-            });
-            if (!internal) {
-                if (!out.empty()) {
-                    out += " ";
-                }
-                out += trimmed;
-            }
-        }
-
-        if (end == text.size()) {
-            break;
-        }
-        start = end + 1;
-    }
-    return out;
-}
-
-bool LooksStoryFailureText(const std::string& text) {
-    if (text.empty()) {
-        return true;
-    }
-    auto lower = ToLowerAscii(text);
-    if (ContainsAny(lower, {
-        "sorry",
-        "apolog",
-        "failed",
-        "error",
-        "cannot",
-        "unable",
-        "not found",
-        "no result"
-    })) {
-        return true;
-    }
-    return text.find("抱歉") != std::string::npos ||
-           text.find("无法") != std::string::npos ||
-           text.find("失败") != std::string::npos ||
-           text.find("没找到") != std::string::npos;
-}
-
-constexpr const char* kLocalFallbackStory =
-    "In a quiet village, a brave little lantern followed a firefly through the night and found a hidden garden. "
-    "The lantern shared the light with everyone, and from that day on, the whole village glowed warmly together.";
-
-}  // namespace
-
-
 Application::Application() {
     event_group_ = xEventGroupCreate();
 
@@ -287,14 +191,10 @@ void Application::Initialize() {
     // Start the clock timer to update the status bar
     esp_timer_start_periodic(clock_timer_handle_, 1000000);
 
-#if CONFIG_PHASE1_INVESTOR_DEMO_BUILD
-    ESP_LOGW(TAG, "[demo] MCP tools disabled to reduce runtime memory pressure");
-#else
     // Add MCP common tools (only once during initialization)
     auto& mcp_server = McpServer::GetInstance();
     mcp_server.AddCommonTools();
     mcp_server.AddUserOnlyTools();
-#endif
 
     // Set network event callback for UI updates and network state handling
     board.SetNetworkEventCallback([this](NetworkEvent event, const std::string& data) {
@@ -456,11 +356,7 @@ void Application::Run() {
             display->UpdateStatusBar();
         
             // Print debug info every 10 seconds
-            if (clock_ticks_ % 10 == 0) {
-#if !CONFIG_PHASE1_INVESTOR_DEMO_BUILD
                 SystemInfo::PrintHeapStats();
-#endif
-            }
         }
     }
 }
@@ -507,7 +403,6 @@ void Application::HandleActivationDoneEvent() {
     ESP_LOGI(TAG, "Activation done");
 
     SystemInfo::PrintHeapStats();
-    LogSramCheckpoint("startup_done");
     SetDeviceState(kDeviceStateIdle);
 
     has_server_time_ = ota_->HasServerTime();
@@ -752,19 +647,7 @@ void Application::InitializeProtocol() {
             } else if (strcmp(state->valuestring, "sentence_start") == 0) {
                 auto text = cJSON_GetObjectItem(root, "text");
                 if (cJSON_IsString(text)) {
-                    std::string message = SanitizeAssistantText(text->valuestring);
-                    if (story_request_pending_ && LooksStoryFailureText(message)) {
-                        message = kLocalFallbackStory;
-                        ESP_LOGW(TAG, "[demo_story_fallback] remote story failed, using local fallback");
-                        LogSramCheckpoint("story_fallback");
-                    }
-
-                    if (message.empty()) {
-                        ESP_LOGW(TAG, "[demo] filtered internal assistant text");
-                        return;
-                    }
-
-                    story_request_pending_ = false;
+                    std::string message = text->valuestring;
                     ESP_LOGI(TAG, "<< %s", message.c_str());
                     Schedule([display, message = std::move(message)]() {
                         display->SetChatMessage("assistant", message.c_str());
@@ -774,7 +657,6 @@ void Application::InitializeProtocol() {
         } else if (strcmp(type->valuestring, "stt") == 0) {
             auto text = cJSON_GetObjectItem(root, "text");
             if (cJSON_IsString(text)) {
-                story_request_pending_ = IsStoryRequestText(text->valuestring);
                 ESP_LOGI(TAG, ">> %s", text->valuestring);
                 Schedule([display, message = std::string(text->valuestring)]() {
                     display->SetChatMessage("user", message.c_str());
@@ -1010,7 +892,6 @@ void Application::HandleWakeWordDetectedEvent() {
 
     if (state == kDeviceStateIdle) {
         RecordVoiceLatencyTimestamp("wake_detected", esp_timer_get_time());
-        LogSramCheckpoint("after_wake");
         audio_service_.EncodeWakeWord();
         auto wake_word = audio_service_.GetLastWakeWord();
 
@@ -1133,7 +1014,6 @@ void Application::HandleStateChangedEvent() {
             break;
         case kDeviceStateSpeaking:
             display->SetStatus(Lang::Strings::SPEAKING);
-            LogSramCheckpoint("during_speaking");
 
             if (listening_mode_ != kListeningModeRealtime) {
                 audio_service_.EnableVoiceProcessing(false);
@@ -1175,12 +1055,6 @@ void Application::SetListeningMode(ListeningMode mode) {
 
 ListeningMode Application::GetDefaultListeningMode() const {
     return aec_mode_ == kAecOff ? kListeningModeAutoStop : kListeningModeRealtime;
-}
-
-void Application::LogSramCheckpoint(const char* stage) {
-    int free_sram = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
-    int min_free_sram = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL);
-    ESP_LOGW(TAG, "[demo_sram] stage=%s free=%u min=%u", stage, free_sram, min_free_sram);
 }
 
 void Application::Reboot() {
