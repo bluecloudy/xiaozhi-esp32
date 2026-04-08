@@ -898,6 +898,13 @@ config RECEIVE_CUSTOM_MESSAGE
     help
         Enable custom message reception, allow the device to receive custom messages from the server (preferably through the MQTT protocol)
 
+config PHASE1_INVESTOR_DEMO_BUILD
+    bool "Phase1 Investor Demo Hardening Mode"
+    default n
+    help
+        Enable minimal hardening for investor demo stability.
+        This mode disables non-essential runtime features and uses safer fallback behavior.
+
 menu "Camera Configuration"
     depends on !IDF_TARGET_ESP32
 
