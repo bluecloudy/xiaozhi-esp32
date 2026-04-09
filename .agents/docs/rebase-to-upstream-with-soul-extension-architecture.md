@@ -61,6 +61,21 @@ Use a facade-first staged extraction architecture:
 
 This keeps upstream merge/rebase cost low by minimizing invasive core edits.
 
+### Application Boundary (Explicit)
+
+Application may only:
+- receive events
+- build execution context
+- call hook/facade entry points
+- apply returned decisions
+- invoke stable core primitives
+
+Application must not:
+- derive product behavior policy
+- own reprompt rules
+- own learning-flow logic
+- own intent policy
+
 ## 3) KEEP / EXTRACT / REMOVE Classification
 
 | Category | Item | Why | Target Action |
@@ -137,10 +152,26 @@ Protocol Events (stt/tts/wake/mcp)
 - Maps behavior intent -> MCP tool names/guardrails from TOOLS contract.
 
 4. `ContractStore`
-- Local versioned defaults (repo source of truth).
-- Optional remote override with strict validation + fallback.
+- Loads, versions, and merges contract documents (repo defaults + optional remote override).
+- Performs schema validation and fallback selection.
+- Is not a memory data storage engine.
+
+5. `MemoryContractAdapter`
+- Defines policy boundaries for memory read/write/retention behavior.
+- Is separate from the actual memory storage engine implementation.
 
 ## 6) Contract File Responsibilities
+
+### Contract Format Requirements (Phase 1)
+
+Contracts must be structured, deterministic, and schema-validated. Free-form prose alone is not an executable policy source.
+
+Phase-1 format baseline:
+- Markdown with frontmatter and/or strictly structured sections.
+- No free-form-only policy definitions.
+- No scripting.
+- No embedded complex logic.
+- Deterministic parse path with explicit validation errors.
 
 ### SOUL.md
 - Deterministic behavior/policy contract.
@@ -166,6 +197,7 @@ Protocol Events (stt/tts/wake/mcp)
 ### MEMORY.md
 - Long-term memory schema and retention/access policy.
 - Read/write constraints and summarization boundaries.
+- Defines policy boundary only; storage engine remains a separate implementation concern.
 
 ## 7) Anti-Hardcode Rules (Enforcement)
 
@@ -192,6 +224,14 @@ Implementation guardrails:
 ### Phase 2: Contract Externalization
 - Move behavior rules/threshold ownership from code into contracts.
 - Keep Kconfig for hardware/runtime constraints only (VAD/audio/timeouts where hardware-sensitive).
+
+### Behavior Extraction Order (Lowest-Risk Sequence)
+1. Reprompt policy.
+2. Session thresholds and turn-taking.
+3. Intent routing.
+4. Learning flow.
+5. Identity/user personalization.
+6. Remote override.
 
 ### Phase 3: Rebase Loop
 - Rebase from upstream main after each phase checkpoint.
@@ -224,5 +264,5 @@ Implementation guardrails:
 1. Create the minimal `ExtensionManager` and `SoulEngine` interfaces with no behavior change.
 2. Define a compact machine-readable schema for SOUL/AGENTS decisions (inputs/outputs only).
 3. Wire three hook families (STT input, TTS output, session transitions) to pass-through adapters first.
-4. Migrate one behavior slice at a time to contracts (reprompt policy first, then session thresholds, then intent routing).
+4. Migrate behavior slices in fixed order: reprompt -> session/turn-taking -> intent routing -> learning flow -> identity/user personalization -> remote override.
 5. Start phase-based rebasing from upstream main after each extracted slice.
