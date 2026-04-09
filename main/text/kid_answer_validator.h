@@ -18,7 +18,7 @@ public:
     explicit KidAnswerValidator(TextNormalizationOptions options)
         : normalizer_(options) {}
 
-    KidAnswerValidationResult Validate(const std::string& raw_text) const;
+    KidAnswerValidationResult Validate(const std::string& raw_text, int max_expected_words) const;
 
 private:
     static int CountWords(const std::string& text);

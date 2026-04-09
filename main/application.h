@@ -16,10 +16,10 @@
 #include "audio_service.h"
 #include "device_state.h"
 #include "device_state_machine.h"
+#include "text/output_processing_pipeline.h"
 
 namespace text {
-class WakeWordEchoFilter;
-class KidAnswerValidator;
+class TextProcessingPipeline;
 }
 
 // Main event bits
@@ -145,12 +145,16 @@ private:
     bool aborted_ = false;
     bool assets_version_checked_ = false;
     bool play_popup_on_listening_ = false;  // Flag to play popup sound after state changes to listening
-    bool wake_word_echo_filter_enabled_ = true;
     bool ignore_next_stt_after_wake_ = false;
     bool kid_answer_validation_enabled_ = false;
+    bool is_waiting_for_answer_ = false;
+    bool parent_mode_enabled_ = false;
+    bool story_mode_enabled_ = false;
     std::string last_wake_word_phrase_;
-    std::unique_ptr<text::WakeWordEchoFilter> wake_word_echo_filter_;
-    std::unique_ptr<text::KidAnswerValidator> kid_answer_validator_;
+    std::string assistant_name_;
+    text::ExpectedLanguageMode expected_language_mode_ = text::ExpectedLanguageMode::BILINGUAL;
+    std::unique_ptr<text::TextProcessingPipeline> stt_processing_pipeline_;
+    std::unique_ptr<text::OutputProcessingPipeline> output_processing_pipeline_;
     int clock_ticks_ = 0;
     TaskHandle_t activation_task_handle_ = nullptr;
 

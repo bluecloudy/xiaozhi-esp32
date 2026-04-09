@@ -809,6 +809,23 @@ config WAKE_WORD_DETECTION_IN_LISTENING
         which allows interrupting the current conversation.
         When disabled (default), wake word detection is turned off during listening.
 
+config VOICE_SESSION_LISTENING_TIMEOUT_TICKS
+    int "Voice session listening timeout (clock ticks)"
+    default 5
+    range 1 120
+    help
+        Listening timeout threshold used by voice session policy.
+        A timeout reprompt is emitted when clock ticks reach this value
+        while in listening state and no voice has been detected.
+
+config TTS_GRACE_PERIOD_MS
+    int "Voice session speaking-to-listening grace period (ms)"
+    default 400
+    range 0 10000
+    help
+        Grace delay applied before re-entering listening in auto-listening mode
+        to reduce TTS echo pickup. Set to 0 to disable.
+
 config ENABLE_TEXT_NORMALIZATION
     bool "Enable Text Normalization"
     default y
@@ -826,6 +843,163 @@ config ENABLE_KID_ANSWER_VALIDATION
     default y
     help
         Allow kid-answer validation mode to run when runtime setting kid_answer_validation_mode is enabled.
+
+config ENABLE_REPROMPT_POLICY
+    bool "Enable STT Reprompt Policy"
+    default y
+    help
+        Enable policy-based reprompt generation for invalid STT input using localized language strings.
+
+config STT_INTENT_CANCEL_KEYWORDS
+    string "STT intent cancel keywords"
+    default "stop,cancel,dung,thoi"
+    depends on ENABLE_REPROMPT_POLICY
+    help
+        Comma-separated lowercase keywords/phrases mapped to CANCEL intent.
+        Keep this list short and locale-seed only.
+
+config STT_INTENT_COMMAND_KEYWORDS
+    string "STT intent command keywords"
+    default "repeat,again,next,skip,help,pause,resume"
+    depends on ENABLE_REPROMPT_POLICY
+    help
+        Comma-separated lowercase keywords/phrases mapped to COMMAND intent.
+
+config STT_INTENT_SMALL_TALK_KEYWORDS
+    string "STT intent small-talk keywords"
+    default "thanks,thank,hello,hi"
+    depends on ENABLE_REPROMPT_POLICY
+    help
+        Comma-separated lowercase single-token small-talk seeds.
+
+config STT_INTENT_SMALL_TALK_PHRASES
+    string "STT intent small-talk phrases"
+    default "cam on,xin chao,how are you"
+    depends on ENABLE_REPROMPT_POLICY
+    help
+        Comma-separated lowercase phrase-level small-talk seeds.
+
+config STT_LEARNING_WORD_INTENT_MAX_WORDS
+    int "STT learning WORD intent max words"
+    default 2
+    range 1 10
+    depends on ENABLE_REPROMPT_POLICY
+    help
+        Maximum token count still treated as an answer when expected type is WORD.
+
+config STT_LEARNING_SHORT_PHRASE_INTENT_EXTRA_WORDS
+    int "STT learning short-phrase intent extra words"
+    default 1
+    range 0 10
+    depends on ENABLE_REPROMPT_POLICY
+    help
+        Extra-word margin for short-phrase answer intent classification.
+
+config STT_NON_LEARNING_ANSWER_INTENT_MAX_WORDS
+    int "STT non-learning answer intent max words"
+    default 8
+    range 1 64
+    depends on ENABLE_REPROMPT_POLICY
+    help
+        Maximum token count classified as ANSWER outside learning mode.
+
+config ENABLE_BILINGUAL_ROUTING
+    bool "Enable Output Bilingual Routing"
+    default y
+    help
+        Route structured bilingual payloads to the expected language segment.
+
+config ENABLE_TTS_OUTPUT_POLICY
+    bool "Enable Output TTS Policy"
+    default y
+    help
+        Suppress malformed/structured system-like text before TTS output.
+
+config ENABLE_LEARNING_FLOW_OUTPUT_GUARD
+    bool "Enable Output Learning-Flow Guard"
+    default y
+    depends on ENABLE_REPROMPT_POLICY
+    help
+        Guard lesson output while waiting for answer and keep lesson TTS concise.
+
+config STT_NOISE_REPEATED_MIN_TOKENS
+    int "STT repeated-noise minimum token count"
+    default 4
+    range 2 20
+    depends on ENABLE_REPROMPT_POLICY
+    help
+        Minimum semantic token count required before repeated short-token input is
+        treated as noise.
+
+config STT_NOISE_REPEATED_DOMINANCE_PERCENT
+    int "STT repeated-noise dominant token ratio (%)"
+    default 75
+    range 50 100
+    depends on ENABLE_REPROMPT_POLICY
+    help
+        Dominance ratio threshold for the most frequent token in repeated-noise
+        detection.
+
+config STT_NOISE_REPEATED_MAX_UNIQUE_TOKENS
+    int "STT repeated-noise maximum unique token count"
+    default 2
+    range 1 10
+    depends on ENABLE_REPROMPT_POLICY
+    help
+        Maximum number of unique semantic tokens allowed for repeated-noise
+        classification.
+
+config STT_NOISE_REPEATED_MAX_TOKEN_LENGTH
+    int "STT repeated-noise maximum token length"
+    default 3
+    range 1 32
+    depends on ENABLE_REPROMPT_POLICY
+    help
+        Maximum token length considered low-information for repeated-noise
+        detection.
+
+config STT_LONG_FRAGMENT_MULTIPLIER
+    int "STT strict long-fragment multiplier"
+    default 4
+    range 1 20
+    depends on ENABLE_REPROMPT_POLICY
+    help
+        Multiplier applied to expected answer word count for strict long-fragment
+        noise detection in learning mode.
+
+config STT_LONG_FRAGMENT_MARGIN_WORDS
+    int "STT strict long-fragment margin words"
+    default 8
+    range 0 50
+    depends on ENABLE_REPROMPT_POLICY
+    help
+        Additive margin applied to expected answer word count for strict
+        long-fragment noise detection in learning mode.
+
+config STT_LEARNING_SHORT_PHRASE_DEFAULT_MAX_WORDS
+    int "STT learning short-phrase default max words"
+    default 3
+    range 1 20
+    depends on ENABLE_REPROMPT_POLICY
+    help
+        Default max expected words used for learning short-phrase answers when
+        runtime policy does not provide a positive limit.
+
+config STT_KID_ANSWER_MAX_NORMALIZED_CHARS
+    int "STT kid-answer maximum normalized characters"
+    default 12
+    range 1 256
+    depends on ENABLE_KID_ANSWER_VALIDATION
+    help
+        Maximum normalized text length accepted by kid answer validation.
+
+config ENABLE_STT_PIPELINE_SELF_CHECK
+    bool "Enable STT Pipeline Internal Self-Check"
+    default n
+    depends on ENABLE_REPROMPT_POLICY
+    help
+        Run a lightweight startup self-check for text pipeline plugin ordering and
+        key NO_INPUT/NOISE_INPUT behavior. Disabled by default for production.
 
 config ENABLE_PHONETIC_NORMALIZATION
     bool "Enable Optional Phonetic Normalization"

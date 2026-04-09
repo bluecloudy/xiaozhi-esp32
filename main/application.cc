@@ -9,10 +9,12 @@
 #include "mcp_server.h"
 #include "assets.h"
 #include "settings.h"
-#include "text/kid_answer_validator.h"
-#include "text/wake_word_echo_filter.h"
+#include "text/text_processing_pipeline.h"
+#include "voice_session_policy.h"
 
+#include <cstdio>
 #include <cstring>
+#include <cctype>
 #include <esp_log.h>
 #include <cJSON.h>
 #include <driver/gpio.h>
@@ -22,10 +24,6 @@
 #include <algorithm>
 
 #define TAG "Application"
-
-#ifndef CONFIG_TTS_GRACE_PERIOD_MS
-#define CONFIG_TTS_GRACE_PERIOD_MS 400
-#endif
 
 namespace {
 
@@ -53,6 +51,14 @@ constexpr bool IsKidAnswerValidationFeatureEnabled() {
 #endif
 }
 
+constexpr bool IsRepromptPolicyEnabled() {
+#ifdef CONFIG_ENABLE_REPROMPT_POLICY
+    return true;
+#else
+    return false;
+#endif
+}
+
 constexpr bool IsPhoneticNormalizationEnabled() {
 #ifdef CONFIG_ENABLE_PHONETIC_NORMALIZATION
     return true;
@@ -61,9 +67,107 @@ constexpr bool IsPhoneticNormalizationEnabled() {
 #endif
 }
 
-std::string GetAssistantName() {
-    Settings settings("system", true);
-    return settings.GetString("assistant_name", Lang::Strings::ASSISTANT_NAME);
+constexpr bool IsBilingualRoutingEnabled() {
+#ifdef CONFIG_ENABLE_BILINGUAL_ROUTING
+    return true;
+#else
+    return false;
+#endif
+}
+
+constexpr bool IsTtsOutputPolicyEnabled() {
+#ifdef CONFIG_ENABLE_TTS_OUTPUT_POLICY
+    return true;
+#else
+    return false;
+#endif
+}
+
+constexpr bool IsLearningFlowOutputGuardEnabled() {
+#ifdef CONFIG_ENABLE_LEARNING_FLOW_OUTPUT_GUARD
+    return true;
+#else
+    return false;
+#endif
+}
+
+voice_session::VoiceSessionConfig GetVoiceSessionConfig() {
+    voice_session::VoiceSessionConfig config;
+    config.listening_timeout_ticks = CONFIG_VOICE_SESSION_LISTENING_TIMEOUT_TICKS;
+    config.tts_grace_period_ms = CONFIG_TTS_GRACE_PERIOD_MS;
+    return config;
+}
+
+std::string ToUpperAscii(std::string value) {
+    for (char& ch : value) {
+        unsigned char uch = static_cast<unsigned char>(ch);
+        if (uch < 0x80) {
+            ch = static_cast<char>(std::toupper(uch));
+        }
+    }
+    return value;
+}
+
+text::ExpectedLanguageMode ParseExpectedLanguageMode(const std::string& value,
+                                                     text::ExpectedLanguageMode fallback) {
+    std::string normalized = ToUpperAscii(value);
+    if (normalized == "VI_ONLY" || normalized == "VI") {
+        return text::ExpectedLanguageMode::VI_ONLY;
+    }
+    if (normalized == "EN_ONLY" || normalized == "EN") {
+        return text::ExpectedLanguageMode::EN_ONLY;
+    }
+    if (normalized == "BILINGUAL" || normalized == "VI_EN" || normalized == "EN_VI") {
+        return text::ExpectedLanguageMode::BILINGUAL;
+    }
+    return fallback;
+}
+
+text::ExpectedLanguageMode ResolveExpectedLanguageModeFromJson(
+    const cJSON* root,
+    text::ExpectedLanguageMode fallback) {
+    auto expected_language_mode = cJSON_GetObjectItem(root, "expected_language_mode");
+    if (!cJSON_IsString(expected_language_mode)) {
+        expected_language_mode = cJSON_GetObjectItem(root, "language_mode");
+    }
+
+    if (cJSON_IsString(expected_language_mode)) {
+        return ParseExpectedLanguageMode(expected_language_mode->valuestring, fallback);
+    }
+
+    return fallback;
+}
+
+text::ResponseType ResolveResponseTypeFromJson(const cJSON* root,
+                                               bool is_learning_mode,
+                                               bool is_story_mode) {
+    auto response_type = cJSON_GetObjectItem(root, "response_type");
+    if (cJSON_IsString(response_type)) {
+        std::string normalized = ToUpperAscii(response_type->valuestring);
+        if (normalized == "CHAT") {
+            return text::ResponseType::CHAT;
+        }
+        if (normalized == "LESSON") {
+            return text::ResponseType::LESSON;
+        }
+        if (normalized == "REPROMPT") {
+            return text::ResponseType::REPROMPT;
+        }
+        if (normalized == "STORY") {
+            return text::ResponseType::STORY;
+        }
+        if (normalized == "MEDIA_CONFIRMATION") {
+            return text::ResponseType::MEDIA_CONFIRMATION;
+        }
+    }
+
+    if (is_story_mode) {
+        return text::ResponseType::STORY;
+    }
+    if (is_learning_mode) {
+        return text::ResponseType::LESSON;
+    }
+    return text::ResponseType::CHAT;
 }
 
 } // namespace
@@ -77,9 +181,30 @@ Application::Application() {
         .enable_text_normalization = IsTextNormalizationEnabled(),
         .enable_phonetic_normalization = IsPhoneticNormalizationEnabled(),
     };
-    wake_word_echo_filter_enabled_ = IsWakeWordEchoFilterEnabled();
-    wake_word_echo_filter_ = std::make_unique<text::WakeWordEchoFilter>(normalization_options, wake_word_echo_filter_enabled_);
-    kid_answer_validator_ = std::make_unique<text::KidAnswerValidator>(normalization_options);
+
+    text::TextProcessingPipelineConfig pipeline_config;
+    pipeline_config.normalization_options = normalization_options;
+    pipeline_config.enable_wake_word_echo_filter = IsWakeWordEchoFilterEnabled();
+    pipeline_config.enable_kid_answer_validation = IsKidAnswerValidationFeatureEnabled();
+    pipeline_config.enable_reprompt_policy = IsRepromptPolicyEnabled();
+    stt_processing_pipeline_ = std::make_unique<text::TextProcessingPipeline>(pipeline_config);
+
+    text::OutputProcessingPipelineConfig output_pipeline_config;
+    output_pipeline_config.enable_output_normalization = IsTextNormalizationEnabled();
+    output_pipeline_config.enable_bilingual_routing = IsBilingualRoutingEnabled();
+    output_pipeline_config.enable_tts_output_policy = IsTtsOutputPolicyEnabled();
+    output_pipeline_config.enable_learning_flow_guard = IsLearningFlowOutputGuardEnabled();
+    output_pipeline_config.enable_reprompt_output = IsRepromptPolicyEnabled();
+    output_processing_pipeline_ = std::make_unique<text::OutputProcessingPipeline>(output_pipeline_config);
+
+#if defined(CONFIG_ENABLE_STT_PIPELINE_SELF_CHECK) && CONFIG_ENABLE_STT_PIPELINE_SELF_CHECK
+    if (!text::RunTextPipelineSelfCheck()) {
+        ESP_LOGW(TAG, "STT text pipeline self-check failed");
+    }
+    if (!text::RunOutputPipelineSelfCheck()) {
+        ESP_LOGW(TAG, "Output text pipeline self-check failed");
+    }
+#endif
 
 #if CONFIG_USE_DEVICE_AEC && CONFIG_USE_SERVER_AEC
 #error "CONFIG_USE_DEVICE_AEC and CONFIG_USE_SERVER_AEC cannot be enabled at the same time"
@@ -414,14 +539,36 @@ void Application::Run() {
             auto display = Board::GetInstance().GetDisplay();
             display->UpdateStatusBar();
         
-            if (GetDeviceState() == kDeviceStateListening) {
-                if (clock_ticks_ >= 5 && !s_voice_detected_in_listening) {
-                    ESP_LOGW(TAG, "[asr] listening window timeout");
-                    if (protocol_) {
-                        protocol_->SendAbortSpeaking(kAbortReasonNone);
+            voice_session::VoiceSessionContext session_context;
+            session_context.state = GetDeviceState();
+            session_context.clock_ticks = clock_ticks_;
+            session_context.voice_detected_in_listening = s_voice_detected_in_listening;
+            const auto voice_session_config = GetVoiceSessionConfig();
+            auto timeout_decision = voice_session::DecideListeningTimeout(session_context, voice_session_config);
+            if (timeout_decision.should_emit_reprompt) {
+                ESP_LOGW(TAG, "[asr] listening window timeout");
+                if (protocol_ && timeout_decision.should_abort_speaking) {
+                    protocol_->SendAbortSpeaking(kAbortReasonNone);
+                }
+
+                text::OutputContext output_context;
+                output_context.is_learning_mode = kid_answer_validation_enabled_;
+                output_context.is_waiting_for_answer = is_waiting_for_answer_;
+                output_context.is_parent_mode = parent_mode_enabled_;
+                output_context.is_story_mode = story_mode_enabled_;
+                output_context.expected_language_mode = expected_language_mode_;
+                output_context.response_type = text::ResponseType::REPROMPT;
+                output_context.reprompt_text_key = timeout_decision.reprompt_text_key;
+                output_context.assistant_name = assistant_name_;
+
+                auto output_result = output_processing_pipeline_->Process(output_context);
+                if (output_result.action == text::OutputAction::CONTINUE &&
+                    !output_context.normalized_text.empty()) {
+                    if (output_context.is_learning_mode) {
+                        is_waiting_for_answer_ = true;
                     }
-                    std::string reprompt = Lang::Strings::REPROMPT_SHORT;
-                    Schedule([this, reprompt]() {
+                    std::string reprompt = output_context.normalized_text;
+                    Schedule([this, reprompt = std::move(reprompt)]() {
                         if (GetDeviceState() == kDeviceStateListening) {
                             auto display = Board::GetInstance().GetDisplay();
                             display->SetChatMessage("system", reprompt.c_str());
@@ -429,6 +576,8 @@ void Application::Run() {
                             SetDeviceState(kDeviceStateListening);
                         }
                     });
+                }
+                if (timeout_decision.should_reset_clock_ticks) {
                     clock_ticks_ = 0;
                 }
             }
@@ -658,6 +807,12 @@ void Application::InitializeProtocol() {
     Settings system_settings("system", true);
     kid_answer_validation_enabled_ = IsKidAnswerValidationFeatureEnabled() &&
                                      system_settings.GetBool("kid_answer_validation_mode", false);
+    parent_mode_enabled_ = system_settings.GetBool("parent_mode", false);
+    story_mode_enabled_ = system_settings.GetBool("story_mode", false);
+    assistant_name_ = system_settings.GetString("assistant_name", Lang::Strings::ASSISTANT_NAME);
+    expected_language_mode_ = ParseExpectedLanguageMode(
+        system_settings.GetString("expected_language_mode", "BILINGUAL"),
+        text::ExpectedLanguageMode::BILINGUAL);
 
     display->SetStatus(Lang::Strings::LOADING_PROTOCOL);
 
@@ -717,18 +872,53 @@ void Application::InitializeProtocol() {
                 });
             } else if (strcmp(state->valuestring, "stop") == 0) {
                 Schedule([this]() {
-                    if (GetDeviceState() == kDeviceStateSpeaking) {
-                        if (listening_mode_ == kListeningModeManualStop) {
-                            SetDeviceState(kDeviceStateIdle);
-                        } else {
-                            SetDeviceState(kDeviceStateListening);
-                        }
+                    voice_session::VoiceSessionContext session_context;
+                    session_context.state = GetDeviceState();
+                    session_context.is_manual_listening_mode =
+                        (listening_mode_ == kListeningModeManualStop);
+                    auto stop_target = voice_session::DecideTtsStopTarget(session_context);
+                    if (stop_target == voice_session::TtsStopTargetState::IDLE) {
+                        SetDeviceState(kDeviceStateIdle);
+                    } else if (stop_target == voice_session::TtsStopTargetState::LISTENING) {
+                        SetDeviceState(kDeviceStateListening);
                     }
                 });
             } else if (strcmp(state->valuestring, "sentence_start") == 0) {
                 auto text = cJSON_GetObjectItem(root, "text");
                 if (cJSON_IsString(text)) {
-                    std::string message = text->valuestring;
+                    text::OutputContext output_context;
+                    output_context.raw_text = text->valuestring;
+                    output_context.normalized_text = output_context.raw_text;
+                    output_context.is_learning_mode = kid_answer_validation_enabled_;
+                    output_context.is_waiting_for_answer = is_waiting_for_answer_;
+                    output_context.is_parent_mode = parent_mode_enabled_;
+                    output_context.is_story_mode = story_mode_enabled_;
+                    output_context.expected_language_mode = ResolveExpectedLanguageModeFromJson(
+                        root,
+                        expected_language_mode_);
+                    output_context.response_type = ResolveResponseTypeFromJson(
+                        root,
+                        output_context.is_learning_mode,
+                        output_context.is_story_mode);
+
+                    auto output_result = output_processing_pipeline_->Process(output_context);
+                    if (output_result.action == text::OutputAction::SUPPRESS) {
+                        ESP_LOGW(TAG, "[tts] suppressed sentence due to output policy reason=%d",
+                                 static_cast<int>(output_result.reason));
+                        return;
+                    }
+
+                    if (output_context.normalized_text.empty()) {
+                        ESP_LOGW(TAG, "[tts] suppressed empty sentence after output policy");
+                        return;
+                    }
+
+                    if (output_context.is_learning_mode &&
+                        output_context.response_type == text::ResponseType::LESSON) {
+                        is_waiting_for_answer_ = true;
+                    }
+
+                    std::string message = output_context.normalized_text;
                     ESP_LOGI(TAG, "<< %s", message.c_str());
                     Schedule([display, message = std::move(message)]() {
                         display->SetChatMessage("assistant", message.c_str());
@@ -741,36 +931,75 @@ void Application::InitializeProtocol() {
                 std::string message = text->valuestring;
                 ESP_LOGI(TAG, ">> %s", message.c_str());
 
-                if (ignore_next_stt_after_wake_ && wake_word_echo_filter_ &&
-                    wake_word_echo_filter_->ShouldFilter(message, last_wake_word_phrase_)) {
-                    ESP_LOGI(TAG, "[stt] ignored wake-echo transcript='%s' wake='%s'",
+                text::ProcessingContext processing_context;
+                processing_context.raw_text = message;
+                processing_context.normalized_text = message;
+                processing_context.wake_word = last_wake_word_phrase_;
+                processing_context.ignore_next_stt_after_wake = ignore_next_stt_after_wake_;
+                processing_context.is_learning_mode = kid_answer_validation_enabled_;
+                processing_context.is_waiting_for_answer = is_waiting_for_answer_;
+                processing_context.answer_policy.expected_answer_type = kid_answer_validation_enabled_
+                    ? text::ExpectedAnswerType::SHORT_PHRASE
+                    : text::ExpectedAnswerType::FREE_TEXT;
+
+                auto processing_result = stt_processing_pipeline_->Process(processing_context);
+                ignore_next_stt_after_wake_ = processing_context.ignore_next_stt_after_wake;
+
+                if (processing_result.action == text::ProcessingAction::IGNORE) {
+                    ESP_LOGI(TAG, "[stt] ignored transcript='%s' wake='%s'",
                              message.c_str(), last_wake_word_phrase_.c_str());
-                    ignore_next_stt_after_wake_ = false;
                     return;
                 }
-                
-                // Add context-aware filtering for kids' vocabulary mode
-                if (kid_answer_validation_enabled_ && !message.empty()) {
-                    auto validation = kid_answer_validator_->Validate(message);
-                    if (!validation.valid) {
-                        ESP_LOGW(TAG, "[asr] rejected invalid input raw='%s'", message.c_str());
-                        protocol_->SendAbortSpeaking(kAbortReasonNone);
-                        
-                        char buffer[256];
-                        snprintf(buffer, sizeof(buffer), Lang::Strings::REPROMPT_NAME, GetAssistantName().c_str());
-                        std::string reprompt = buffer;
-                        Schedule([this, display, reprompt]() {
-                            if (GetDeviceState() == kDeviceStateListening) {
+
+                auto stt_turn_decision = voice_session::DecideSttTurn(processing_result.action);
+                if (stt_turn_decision.should_abort_speaking) {
+                    protocol_->SendAbortSpeaking(kAbortReasonNone);
+                }
+
+                if (processing_result.action == text::ProcessingAction::ABORT) {
+                    if (processing_context.user_intent == text::UserIntent::CANCEL) {
+                        is_waiting_for_answer_ = false;
+                    }
+                    return;
+                }
+
+                if (stt_turn_decision.should_emit_reprompt) {
+                    ESP_LOGW(TAG, "[asr] rejected input raw='%s'", message.c_str());
+
+                    text::OutputContext output_context;
+                    output_context.is_learning_mode = kid_answer_validation_enabled_;
+                    output_context.is_waiting_for_answer = is_waiting_for_answer_;
+                    output_context.is_parent_mode = parent_mode_enabled_;
+                    output_context.is_story_mode = story_mode_enabled_;
+                    output_context.expected_language_mode = expected_language_mode_;
+                    output_context.response_type = text::ResponseType::REPROMPT;
+                    output_context.reprompt_text_key = processing_result.reprompt_text_key;
+                    output_context.assistant_name = assistant_name_;
+
+                    auto output_result = output_processing_pipeline_->Process(output_context);
+                    if (output_result.action == text::OutputAction::CONTINUE &&
+                        !output_context.normalized_text.empty()) {
+                        if (output_context.is_learning_mode) {
+                            is_waiting_for_answer_ = true;
+                        }
+                        std::string reprompt = output_context.normalized_text;
+                        Schedule([this, display, reprompt = std::move(reprompt)]() {
+                            if (GetDeviceState() == kDeviceStateListening && !reprompt.empty()) {
                                 display->SetChatMessage("system", reprompt.c_str());
                                 SetDeviceState(kDeviceStateListening);
                             }
                         });
-                        return; // Do not process or display user message
                     }
-                    message = std::move(validation.normalized_text);
+                    return;
                 }
 
-                Schedule([display, message = std::move(message)]() {
+                if (processing_context.user_intent == text::UserIntent::ANSWER) {
+                    is_waiting_for_answer_ = false;
+                }
+
+                std::string display_message = processing_context.normalized_text;
+
+                Schedule([display, message = std::move(display_message)]() {
                     display->SetChatMessage("user", message.c_str());
                 });
             }
@@ -947,6 +1176,8 @@ void Application::ContinueOpenAudioChannel(ListeningMode mode) {
 
 void Application::HandleStartListeningEvent() {
     auto state = GetDeviceState();
+    voice_session::VoiceSessionContext session_context;
+    session_context.state = state;
     
     if (state == kDeviceStateActivating) {
         SetDeviceState(kDeviceStateIdle);
@@ -972,7 +1203,7 @@ void Application::HandleStartListeningEvent() {
             return;
         }
         SetListeningMode(kListeningModeManualStop);
-    } else if (state == kDeviceStateSpeaking) {
+    } else if (voice_session::ShouldAbortWhenStartingManualListen(session_context)) {
         AbortSpeaking(kAbortReasonNone);
         SetListeningMode(kListeningModeManualStop);
     }
@@ -999,12 +1230,30 @@ void Application::HandleWakeWordDetectedEvent() {
     }
 
     auto state = GetDeviceState();
+    voice_session::VoiceSessionContext session_context;
+    session_context.state = state;
+    auto wake_decision = voice_session::DecideWakeWordEvent(session_context);
+
     auto wake_word = audio_service_.GetLastWakeWord();
     ESP_LOGI(TAG, "Wake trigger source=voice event, phrase=%s, state=%d", wake_word.c_str(), (int)state);
 
-    if (state == kDeviceStateIdle) {
-        RecordVoiceLatencyTimestamp("wake_detected", esp_timer_get_time());
-        audio_service_.EncodeWakeWord();
+    if (wake_decision.should_abort_speaking) {
+        AbortSpeaking(wake_decision.should_abort_with_wake_reason
+                          ? kAbortReasonWakeWordDetected
+                          : kAbortReasonNone);
+    }
+
+    if (wake_decision.should_clear_send_queue) {
+        while (audio_service_.PopPacketFromSendQueue());
+    }
+
+    if (wake_decision.transition == voice_session::WakeWordTransition::INVOKE_FROM_IDLE) {
+        if (wake_decision.should_record_wake_latency) {
+            RecordVoiceLatencyTimestamp("wake_detected", esp_timer_get_time());
+        }
+        if (wake_decision.should_encode_wake_word) {
+            audio_service_.EncodeWakeWord();
+        }
         auto wake_word = audio_service_.GetLastWakeWord();
 
         if (!protocol_->IsAudioChannelOpened()) {
@@ -1018,23 +1267,26 @@ void Application::HandleWakeWordDetectedEvent() {
         }
         // Channel already opened, continue directly
         ContinueWakeWordInvoke(wake_word);
-    } else if (state == kDeviceStateSpeaking || state == kDeviceStateListening) {
-        AbortSpeaking(kAbortReasonWakeWordDetected);
-        // Clear send queue to avoid sending residues to server
-        while (audio_service_.PopPacketFromSendQueue());
-
-        if (state == kDeviceStateListening) {
+    } else if (wake_decision.transition == voice_session::WakeWordTransition::RESTART_IN_LISTENING) {
+        if (wake_decision.should_send_start_listening) {
             protocol_->SendStartListening(GetDefaultListeningMode());
+        }
+        if (wake_decision.should_reset_decoder) {
             audio_service_.ResetDecoder();
+        }
+        if (wake_decision.should_play_popup_immediately) {
             audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
+        }
+        if (wake_decision.should_reenable_wake_word_detection) {
             // Re-enable wake word detection as it was stopped by the detection itself
             audio_service_.EnableWakeWordDetection(true);
-        } else {
-            // Play popup sound and start listening again
-            play_popup_on_listening_ = true;
-            SetListeningMode(GetDefaultListeningMode());
         }
-    } else if (state == kDeviceStateActivating) {
+    } else if (wake_decision.transition == voice_session::WakeWordTransition::RESTART_FROM_SPEAKING) {
+        if (wake_decision.should_set_popup_on_listening) {
+            play_popup_on_listening_ = true;
+        }
+        SetListeningMode(GetDefaultListeningMode());
+    } else if (wake_decision.transition == voice_session::WakeWordTransition::EXIT_ACTIVATION_TO_IDLE) {
         // Restart the activation check if the wake word is detected during activation
         SetDeviceState(kDeviceStateIdle);
     }
@@ -1054,20 +1306,35 @@ void Application::ContinueWakeWordInvoke(const std::string& wake_word) {
     }
 
     ESP_LOGI(TAG, "Wake word detected: %s", wake_word.c_str());
-    last_wake_word_phrase_ = wake_word;
-    ignore_next_stt_after_wake_ = true;
+    constexpr bool kSendWakeWordData =
+#if CONFIG_SEND_WAKE_WORD_DATA
+        true;
+#else
+        false;
+#endif
+    auto wake_invoke_decision = voice_session::DecideWakeInvoke(kSendWakeWordData);
+    if (wake_invoke_decision.should_store_wake_phrase) {
+        last_wake_word_phrase_ = wake_word;
+    }
+    if (wake_invoke_decision.should_ignore_next_stt_after_wake) {
+        ignore_next_stt_after_wake_ = true;
+    }
 #if CONFIG_SEND_WAKE_WORD_DATA
     // Encode and send the wake word data to the server
     while (auto packet = audio_service_.PopWakeWordPacket()) {
         protocol_->SendAudio(std::move(packet));
     }
-    // Set the chat state to wake word detected
-    protocol_->SendWakeWordDetected(wake_word);
+    if (wake_invoke_decision.should_send_wake_word_detected) {
+        // Set the chat state to wake word detected
+        protocol_->SendWakeWordDetected(wake_word);
+    }
     SetListeningMode(GetDefaultListeningMode());
 #else
-    // Set flag to play popup sound after state changes to listening
-    // (PlaySound here would be cleared by ResetDecoder in EnableVoiceProcessing)
-    play_popup_on_listening_ = true;
+    if (wake_invoke_decision.should_set_popup_on_listening) {
+        // Set flag to play popup sound after state changes to listening
+        // (PlaySound here would be cleared by ResetDecoder in EnableVoiceProcessing)
+        play_popup_on_listening_ = true;
+    }
     SetListeningMode(GetDefaultListeningMode());
 #endif
 }
@@ -1084,6 +1351,7 @@ void Application::HandleStateChangedEvent() {
     switch (new_state) {
         case kDeviceStateUnknown:
         case kDeviceStateIdle:
+            is_waiting_for_answer_ = false;
             display->SetStatus(Lang::Strings::STANDBY);
             display->ClearChatMessages();  // Clear messages first
             display->SetEmotion("neutral"); // Then set emotion (wechat mode checks child count)
@@ -1100,18 +1368,39 @@ void Application::HandleStateChangedEvent() {
             display->SetEmotion("neutral");
             s_voice_detected_in_listening = false;
 
-            // Make sure the audio processor is running
-            if (play_popup_on_listening_ || !audio_service_.IsAudioProcessorRunning()) {
-                // For auto mode, wait for playback queue to be empty before enabling voice processing
-                // This prevents audio truncation when STOP arrives late due to network jitter
-                if (listening_mode_ == kListeningModeAutoStop) {
+            {
+                voice_session::VoiceSessionContext session_context;
+                session_context.state = kDeviceStateListening;
+                session_context.is_auto_listening_mode = (listening_mode_ == kListeningModeAutoStop);
+                session_context.play_popup_on_listening = play_popup_on_listening_;
+                session_context.audio_processor_running = audio_service_.IsAudioProcessorRunning();
+                const auto voice_session_config = GetVoiceSessionConfig();
+                auto listening_decision = voice_session::DecideListeningEntry(session_context, voice_session_config);
+
+                if (listening_decision.should_wait_for_playback_queue_empty) {
                     audio_service_.WaitForPlaybackQueueEmpty();
-                    vTaskDelay(pdMS_TO_TICKS(CONFIG_TTS_GRACE_PERIOD_MS)); // Grace period after TTS to prevent echo
                 }
-                
-                // Send the start listening command
-                protocol_->SendStartListening(listening_mode_);
-                audio_service_.EnableVoiceProcessing(true);
+
+                if (listening_decision.should_apply_grace_period && listening_decision.grace_period_ms > 0) {
+                    // Grace period after TTS to prevent echo.
+                    vTaskDelay(pdMS_TO_TICKS(listening_decision.grace_period_ms));
+                }
+
+                if (listening_decision.should_send_start_listening) {
+                    protocol_->SendStartListening(listening_mode_);
+                }
+
+                if (listening_decision.should_enable_voice_processing) {
+                    audio_service_.EnableVoiceProcessing(true);
+                }
+
+                if (listening_decision.should_clear_popup_flag) {
+                    play_popup_on_listening_ = false;
+                }
+
+                if (listening_decision.should_play_popup) {
+                    audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
+                }
             }
 
 #ifdef CONFIG_WAKE_WORD_DETECTION_IN_LISTENING
@@ -1121,12 +1410,6 @@ void Application::HandleStateChangedEvent() {
             // Disable wake word detection in listening mode
             audio_service_.EnableWakeWordDetection(false);
 #endif
-            
-            // Play popup sound after ResetDecoder (in EnableVoiceProcessing) has been called
-            if (play_popup_on_listening_) {
-                play_popup_on_listening_ = false;
-                audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
-            }
             break;
         case kDeviceStateSpeaking:
             display->SetStatus(Lang::Strings::SPEAKING);
