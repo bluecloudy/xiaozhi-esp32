@@ -28,13 +28,19 @@ inline constexpr bool kTimeoutResetClock = true;
 
 inline constexpr const char* kIntentNames[] = {
     "CANCEL",
-    "ANSWER"
+    "ANSWER",
+    "COMMAND",
+    "SMALL_TALK",
+    "UNKNOWN"
 };
 inline constexpr const char* kIntentKeywordCsv[] = {
-    "stop,cancel",
+    "",
+    "",
+    "",
+    "",
     ""
 };
-inline constexpr std::size_t kIntentCount = 2;
+inline constexpr std::size_t kIntentCount = 5;
 
 }  // namespace generated
 }  // namespace policy
