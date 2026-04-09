@@ -34,12 +34,15 @@ set(SOURCES "audio/audio_codec.cc"
             "application.cc"
             "ota.cc"
             "settings.cc"
+            "policy/contract_store.cc"
+            "policy/soul_engine.cc"
+            "policy/extension_manager.cc"
             "device_state_machine.cc"
             "assets.cc"
             "main.cc"
             )
 
-set(INCLUDE_DIRS "." "display" "display/lvgl_display" "display/lvgl_display/jpg" "audio" "audio/demuxer" "protocols")
+set(INCLUDE_DIRS "." "display" "display/lvgl_display" "display/lvgl_display/jpg" "audio" "audio/demuxer" "protocols" "${PROJECT_DIR}")
 
 # Add board common files
 list(APPEND SOURCES
@@ -969,6 +972,33 @@ target_compile_definitions(${COMPONENT_LIB}
                     PRIVATE BOARD_TYPE=\"${BOARD_TYPE}\" BOARD_NAME=\"${BOARD_NAME}\"
                     PRIVATE BUILTIN_TEXT_FONT=${BUILTIN_TEXT_FONT} BUILTIN_ICON_FONT=${BUILTIN_ICON_FONT}
                     )
+
+set(POLICY_SCHEMA "${PROJECT_DIR}/tools/contracts/schema_v1.json")
+set(POLICY_SOUL_CONTRACT "${PROJECT_DIR}/contracts/SOUL.md")
+set(POLICY_AGENTS_CONTRACT "${PROJECT_DIR}/contracts/AGENTS.md")
+set(POLICY_GENERATED_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/policy/generated/policy_bundle_v1.h")
+
+add_custom_command(
+    OUTPUT ${POLICY_GENERATED_HEADER}
+    COMMAND python3 ${PROJECT_DIR}/tools/contracts/compile_contracts.py
+            --soul ${POLICY_SOUL_CONTRACT}
+            --agents ${POLICY_AGENTS_CONTRACT}
+            --schema ${POLICY_SCHEMA}
+            --out ${POLICY_GENERATED_HEADER}
+    DEPENDS
+        ${POLICY_SOUL_CONTRACT}
+        ${POLICY_AGENTS_CONTRACT}
+        ${POLICY_SCHEMA}
+        ${PROJECT_DIR}/tools/contracts/compile_contracts.py
+        ${PROJECT_DIR}/tools/contracts/validate_contracts.py
+    COMMENT "Compiling SOUL/AGENTS contracts into policy bundle header"
+)
+
+add_custom_target(policy_bundle_header ALL
+    DEPENDS ${POLICY_GENERATED_HEADER}
+)
+
+add_dependencies(${COMPONENT_LIB} policy_bundle_header)
 
 # Add generation rules
 add_custom_command(
