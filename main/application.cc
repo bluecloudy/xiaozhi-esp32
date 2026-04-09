@@ -9,6 +9,7 @@
 #include "mcp_server.h"
 #include "assets.h"
 #include "settings.h"
+#include "main/policy/extension_manager.h"
 
 #include <cstring>
 #include <esp_log.h>
@@ -22,6 +23,9 @@
 
 Application::Application() {
     event_group_ = xEventGroupCreate();
+
+    policy::RuntimeConfig runtime_config;
+    policy_extension_manager_ = std::make_unique<policy::ExtensionManager>(runtime_config);
 
 #if CONFIG_USE_DEVICE_AEC && CONFIG_USE_SERVER_AEC
 #error "CONFIG_USE_DEVICE_AEC and CONFIG_USE_SERVER_AEC cannot be enabled at the same time"
@@ -233,6 +237,9 @@ void Application::Run() {
             if (GetDeviceState() == kDeviceStateListening) {
                 auto led = Board::GetInstance().GetLed();
                 led->OnStateChanged();
+                if (audio_service_.IsVoiceDetected()) {
+                    voice_detected_in_listening_ = true;
+                }
             }
         }
 
@@ -249,6 +256,31 @@ void Application::Run() {
             clock_ticks_++;
             auto display = Board::GetInstance().GetDisplay();
             display->UpdateStatusBar();
+
+            policy::SessionDecision timeout_decision;
+            if (GetDeviceState() == kDeviceStateListening && policy_extension_manager_) {
+                policy::SessionContext session_context;
+                session_context.clock_ticks = clock_ticks_;
+                session_context.voice_detected = voice_detected_in_listening_;
+                timeout_decision = policy_extension_manager_->OnSessionTick(session_context);
+            }
+
+            if (timeout_decision.emit_reprompt) {
+                if (protocol_) {
+                    protocol_->SendAbortSpeaking(kAbortReasonNone);
+                }
+                std::string reprompt_key = timeout_decision.reprompt_key;
+                Schedule([this, display, reprompt = std::move(reprompt_key)]() {
+                    if (GetDeviceState() == kDeviceStateListening && !reprompt.empty()) {
+                        display->SetChatMessage("system", reprompt.c_str());
+                        SetDeviceState(kDeviceStateListening);
+                    }
+                });
+                if (timeout_decision.reset_clock) {
+                    clock_ticks_ = 0;
+                    voice_detected_in_listening_ = false;
+                }
+            }
         
             // Print debug info every 10 seconds
             if (clock_ticks_ % 10 == 0) {
@@ -550,8 +582,42 @@ void Application::InitializeProtocol() {
         } else if (strcmp(type->valuestring, "stt") == 0) {
             auto text = cJSON_GetObjectItem(root, "text");
             if (cJSON_IsString(text)) {
-                ESP_LOGI(TAG, ">> %s", text->valuestring);
-                Schedule([display, message = std::string(text->valuestring)]() {
+                std::string message = text->valuestring;
+                ESP_LOGI(TAG, ">> %s", message.c_str());
+
+                if (policy_extension_manager_) {
+                    policy::SttContext stt_context;
+                    stt_context.normalized_text = message;
+                    stt_context.waiting_for_answer = false;
+
+                    auto stt_decision = policy_extension_manager_->OnStt(stt_context);
+                    if (stt_decision.action == policy::PolicyAction::kReprompt &&
+                        !stt_decision.reprompt_key.empty()) {
+                        std::string reprompt_key = stt_decision.reprompt_key;
+                        Schedule([this, display, reprompt = std::move(reprompt_key)]() {
+                            if (GetDeviceState() == kDeviceStateListening && !reprompt.empty()) {
+                                display->SetChatMessage("system", reprompt.c_str());
+                                SetDeviceState(kDeviceStateListening);
+                            }
+                        });
+                        return;
+                    }
+
+                    if (stt_decision.intent == "CANCEL") {
+                        Schedule([this]() {
+                            auto state = GetDeviceState();
+                            if (state == kDeviceStateSpeaking) {
+                                AbortSpeaking(kAbortReasonNone);
+                            }
+                            if (protocol_ && GetDeviceState() == kDeviceStateListening) {
+                                protocol_->SendStopListening();
+                            }
+                        });
+                        return;
+                    }
+                }
+
+                Schedule([display, message = std::move(message)]() {
                     display->SetChatMessage("user", message.c_str());
                 });
             }
@@ -864,6 +930,7 @@ void Application::HandleStateChangedEvent() {
             display->SetStatus(Lang::Strings::STANDBY);
             display->ClearChatMessages();  // Clear messages first
             display->SetEmotion("neutral"); // Then set emotion (wechat mode checks child count)
+            voice_detected_in_listening_ = false;
             audio_service_.EnableVoiceProcessing(false);
             audio_service_.EnableWakeWordDetection(true);
             break;
@@ -875,6 +942,7 @@ void Application::HandleStateChangedEvent() {
         case kDeviceStateListening:
             display->SetStatus(Lang::Strings::LISTENING);
             display->SetEmotion("neutral");
+            voice_detected_in_listening_ = false;
 
             // Make sure the audio processor is running
             if (play_popup_on_listening_ || !audio_service_.IsAudioProcessorRunning()) {

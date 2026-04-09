@@ -17,6 +17,10 @@
 #include "device_state.h"
 #include "device_state_machine.h"
 
+namespace policy {
+class ExtensionManager;
+}
+
 // Main event bits
 #define MAIN_EVENT_SCHEDULE             (1 << 0)
 #define MAIN_EVENT_SEND_AUDIO           (1 << 1)
@@ -140,6 +144,8 @@ private:
     bool aborted_ = false;
     bool assets_version_checked_ = false;
     bool play_popup_on_listening_ = false;  // Flag to play popup sound after state changes to listening
+    bool voice_detected_in_listening_ = false;
+    std::unique_ptr<policy::ExtensionManager> policy_extension_manager_;
     int clock_ticks_ = 0;
     TaskHandle_t activation_task_handle_ = nullptr;
 
