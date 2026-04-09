@@ -1,0 +1,29 @@
+{
+  "schema_name": "soul-policy-v1",
+  "required_frontmatter": [
+    "name",
+    "version",
+    "schema",
+    "mode"
+  ],
+  "required_top_level": [
+    "stt",
+    "session"
+  ],
+  "required_stt_fields": [
+    "evaluation_order",
+    "rules"
+  ],
+  "required_session_fields": [
+    "listening_timeout",
+    "timeout_decision"
+  ],
+  "required_agents_fields": [
+    "intent"
+  ],
+  "required_intent_fields": [
+    "precedence",
+    "keyword_sets",
+    "match"
+  ]
+}
