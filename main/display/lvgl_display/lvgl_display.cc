@@ -169,13 +169,21 @@ void LvglDisplay::UpdateStatusBar(bool update_all) {
             icon = levels[battery_level / 20];
         }
         DisplayLockGuard lock(this);
+#if CONFIG_SHOW_LOW_BATTERY_ALERT
         if (battery_label_ != nullptr && battery_icon_ != icon) {
             battery_icon_ = icon;
             lv_label_set_text(battery_label_, battery_icon_);
         }
+#else
+        if (battery_label_ != nullptr) {
+            battery_icon_ = "";
+            lv_label_set_text(battery_label_, "");
+        }
+#endif
 
         // Check low battery popup only when clock tick event is triggered
         // Because when initializing, the battery level is not ready yet.
+#if CONFIG_SHOW_LOW_BATTERY_ALERT
         if (low_battery_popup_ != nullptr && !update_all) {
             if (strcmp(icon, FONT_AWESOME_BATTERY_EMPTY) == 0 && discharging) {
                 if (lv_obj_has_flag(low_battery_popup_, LV_OBJ_FLAG_HIDDEN)) { // Show if low battery popup is hidden
@@ -191,6 +199,7 @@ void LvglDisplay::UpdateStatusBar(bool update_all) {
                 }
             }
         }
+#endif
     }
 
     // Update network icon every 10 seconds

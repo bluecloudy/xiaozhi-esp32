@@ -711,6 +711,14 @@ config USE_MULTILINE_CHAT_MESSAGE
         When disabled (default), a single-line horizontally scrolling label
         is shown at the bottom of the screen.
 
+config SHOW_LOW_BATTERY_ALERT
+    bool "Show battery icon and low battery alerts"
+    default y
+    help
+        When enabled, show battery icon and low battery popup with warning sound.
+        When disabled, battery icon, low battery popup, and warning sound
+        are all suppressed.
+
 choice WAKE_WORD_TYPE
     prompt "Wake Word Implementation Type"
     default USE_AFE_WAKE_WORD if (IDF_TARGET_ESP32S3 || IDF_TARGET_ESP32P4) && SPIRAM
