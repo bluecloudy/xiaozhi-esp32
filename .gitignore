@@ -18,3 +18,13 @@ main/mmap_generate_emoji.h
 *.bin
 mmap_generate_*.h
 .clangd
+
+# Ignore all specs
+/.specify/
+/.github/agents/
+/.github/prompts/
+/.agents/
+!.specify/.keep
+!.github/agents/.keep
+!.github/prompts/.keep
+!.agents/.keep
