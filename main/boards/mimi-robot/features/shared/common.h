@@ -1,0 +1,80 @@
+#ifndef MIMI_COMMON_H
+#define MIMI_COMMON_H
+
+#include <driver/adc.h>
+#include <driver/gpio.h>
+
+#define MIMI_VERSION_AUTO 0
+#define MIMI_VERSION_CAMERA 1
+#define MIMI_VERSION_NO_CAMERA 2
+
+#ifndef MIMI_HARDWARE_VERSION
+#define MIMI_HARDWARE_VERSION MIMI_VERSION_AUTO
+#endif
+
+enum MimiCameraType {
+    MIMI_CAMERA_NONE = 0,
+    MIMI_CAMERA_OV2640 = 1,
+    MIMI_CAMERA_OV3660 = 2,
+    MIMI_CAMERA_UNKNOWN = 99,
+};
+
+#define OV2640_PID_1 0x2640
+#define OV2640_PID_2 0x2626
+#define OV3660_PID 0x3660
+
+#define CAMERA_XCLK (GPIO_NUM_3)
+#define CAMERA_PCLK (GPIO_NUM_10)
+#define CAMERA_VSYNC (GPIO_NUM_17)
+#define CAMERA_HSYNC (GPIO_NUM_18)
+#define CAMERA_D0 (GPIO_NUM_12)
+#define CAMERA_D1 (GPIO_NUM_14)
+#define CAMERA_D2 (GPIO_NUM_21)
+#define CAMERA_D3 (GPIO_NUM_13)
+#define CAMERA_D4 (GPIO_NUM_11)
+#define CAMERA_D5 (GPIO_NUM_9)
+#define CAMERA_D6 (GPIO_NUM_46)
+#define CAMERA_D7 (GPIO_NUM_8)
+#define CAMERA_PWDN (GPIO_NUM_NC)
+#define CAMERA_RESET (GPIO_NUM_NC)
+#define CAMERA_XCLK_FREQ (16000000)
+#define LEDC_TIMER (LEDC_TIMER_0)
+#define LEDC_CHANNEL (LEDC_CHANNEL_0)
+
+#define LCD_TYPE_ST7789_SERIAL
+#define DISPLAY_WIDTH 240
+#define DISPLAY_HEIGHT 240
+#define DISPLAY_MIRROR_X false
+#define DISPLAY_MIRROR_Y false
+#define DISPLAY_SWAP_XY false
+#define DISPLAY_INVERT_COLOR true
+#define DISPLAY_RGB_ORDER LCD_RGB_ELEMENT_ORDER_RGB
+#define DISPLAY_OFFSET_X 0
+#define DISPLAY_OFFSET_Y 0
+#define DISPLAY_BACKLIGHT_OUTPUT_INVERT false
+#define DISPLAY_SPI_MODE 3
+
+#define BOOT_BUTTON_GPIO GPIO_NUM_0
+
+#define FORWARD 1
+#define BACKWARD -1
+#define LEFT 1
+#define RIGHT -1
+#define BOTH 0
+#define SMALL 5
+#define MEDIUM 15
+#define BIG 30
+
+#define SERVO_LIMIT_DEFAULT 240
+
+#define LEFT_LEG 0
+#define RIGHT_LEG 1
+#define LEFT_FOOT 2
+#define RIGHT_FOOT 3
+#define LEFT_HAND 4
+#define RIGHT_HAND 5
+#define SERVO_COUNT 6
+
+#define HAND_HOME_POSITION 45
+
+#endif

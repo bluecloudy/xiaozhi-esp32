@@ -1,0 +1,8 @@
+#include "features/core/board/mimi_robot.cc"
+#include "features/core/controller/mimi_controller.cc"
+#include "features/core/servo/oscillator.cc"
+#include "features/core/servo/mimi_movements.cc"
+#include "features/core/display/mimi_emoji_display.cc"
+#include "features/core/display/mimi_icon_font.c"
+#include "features/core/websocket_server/websocket_control_server.cc"
+#include "features/shared/common.cc"
