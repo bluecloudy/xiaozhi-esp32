@@ -358,6 +358,26 @@ def release(board_type: str, config_filename: str = "config.json", *, filter_nam
             board_type_config = _resolve_board_config(board_type, target, build_sdkconfig_append)
             sdkconfig_append = [f"{board_type_config}=y"]
             sdkconfig_append.extend(build_sdkconfig_append)
+        # Check for custom sdkconfig files
+        custom_sdkconfig_paths = [
+            Path(f"sdkconfig.{final_name}.{target}"),
+            Path(f"sdkconfig.{name}.{target}"),
+            Path(f"sdkconfig.{board_leaf}.{target}")
+        ]
+        
+        # apply the first custom config found
+        for custom_path in custom_sdkconfig_paths:
+            if custom_path.exists():
+                print(f"[INFO] Applying custom sdkconfig from {custom_path}")
+                try:
+                    for line in custom_path.read_text(encoding="utf-8").splitlines():
+                        line = line.strip()
+                        if line and not line.startswith("#"):
+                            sdkconfig_append.append(line)
+                except Exception as e:
+                    print(f"[WARN] Failed to read {custom_path}: {e}")
+                break
+
         sdkconfig_append = _apply_auto_selects(sdkconfig_append)
 
         print("-" * 80)
