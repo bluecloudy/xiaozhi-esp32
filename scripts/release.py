@@ -358,26 +358,6 @@ def release(board_type: str, config_filename: str = "config.json", *, filter_nam
             board_type_config = _resolve_board_config(board_type, target, build_sdkconfig_append)
             sdkconfig_append = [f"{board_type_config}=y"]
             sdkconfig_append.extend(build_sdkconfig_append)
-        # Check for custom sdkconfig files
-        custom_sdkconfig_paths = [
-            Path(f"sdkconfig.{final_name}.{target}"),
-            Path(f"sdkconfig.{name}.{target}"),
-            Path(f"sdkconfig.{board_leaf}.{target}")
-        ]
-        
-        # apply the first custom config found
-        for custom_path in custom_sdkconfig_paths:
-            if custom_path.exists():
-                print(f"[INFO] Applying custom sdkconfig from {custom_path}")
-                try:
-                    for line in custom_path.read_text(encoding="utf-8").splitlines():
-                        line = line.strip()
-                        if line and not line.startswith("#"):
-                            sdkconfig_append.append(line)
-                except Exception as e:
-                    print(f"[WARN] Failed to read {custom_path}: {e}")
-                break
-
         sdkconfig_append = _apply_auto_selects(sdkconfig_append)
 
         print("-" * 80)
@@ -390,6 +370,19 @@ def release(board_type: str, config_filename: str = "config.json", *, filter_nam
 
         os.environ.pop("IDF_TARGET", None)
 
+        # Check for custom sdkconfig files
+        custom_sdkconfig_path: Optional[Path] = None
+        custom_sdkconfig_candidates = [
+            Path(f"sdkconfig.{final_name}.{target}"),
+            Path(f"sdkconfig.{name}.{target}"),
+            Path(f"sdkconfig.{board_leaf}.{target}")
+        ]
+        for p in custom_sdkconfig_candidates:
+            if p.exists():
+                custom_sdkconfig_path = p
+                print(f"[INFO] Using custom sdkconfig: {p.name}")
+                break
+
         # Call set-target
         if os.system(f"idf.py set-target {target}") != 0:
             print("set-target failed", file=sys.stderr)
@@ -399,6 +392,11 @@ def release(board_type: str, config_filename: str = "config.json", *, filter_nam
         with Path("sdkconfig").open("a", encoding='utf-8') as f:
             f.write("\n")
             f.write("# Append by release.py\n")
+            # Apply custom sdkconfig overrides first (so sdkconfig_append can still override them)
+            if custom_sdkconfig_path:
+                f.write(f"# From {custom_sdkconfig_path.name}\n")
+                f.write(custom_sdkconfig_path.read_text(encoding='utf-8'))
+                f.write("\n")
             for append in sdkconfig_append:
                 f.write(f"{append}\n")
         # Build with macro BOARD_NAME defined to name
