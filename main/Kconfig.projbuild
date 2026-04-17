@@ -957,3 +957,43 @@ menu "TAIJIPAI_S3_CONFIG"
 endmenu
 
 endmenu
+
+# ============================================================
+# XFeature
+# ============================================================
+menu "XFeature"
+
+    config XFEATURE_ENABLE
+        bool "Enable XFeature (media players, weather, QR code)"
+        default n
+        help
+            Enable all extension features of XFeature:
+            - Online Music Player (Esp32Music)
+            - Internet Radio Player (Esp32Radio)
+            - SD Card Music & Video Player
+            - Weather Idle Screen
+            - QR Code IP Display
+
+    config WEATHER_IDLE_DISPLAY_ENABLE
+        bool "Enable weather idle screen display"
+        depends on XFEATURE_ENABLE
+        default n
+        help
+            Display an idle screen with weather info, clock,
+            date and 3-day forecast when the device is idle.
+
+    config WEATHER_API_KEY
+        string "OpenWeatherMap API key"
+        depends on WEATHER_IDLE_DISPLAY_ENABLE
+        default ""
+        help
+            API key from openweathermap.org to fetch weather data.
+
+    config WEATHER_CITY
+        string "City name for weather"
+        depends on WEATHER_IDLE_DISPLAY_ENABLE
+        default "Hanoi"
+        help
+            City name to fetch weather data (in English).
+
+endmenu

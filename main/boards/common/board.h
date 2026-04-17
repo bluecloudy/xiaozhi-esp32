@@ -59,6 +59,9 @@ protected:
     std::string uuid_;
 
 public:
+    // Board-specific feature registration (called by XFeatureManager)
+    virtual void InitializeFeatures() {}
+
     static Board& GetInstance() {
         static Board* instance = static_cast<Board*>(create_board());
         return *instance;

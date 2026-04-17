@@ -65,6 +65,8 @@ public:
 
     DeviceState GetDeviceState() const { return state_machine_.GetState(); }
     bool IsVoiceDetected() const { return audio_service_.IsVoiceDetected(); }
+    // [XFeature] Expose state machine for external listener registration
+    DeviceStateMachine& GetStateMachine() { return state_machine_; }
     
     /**
      * Request state transition
@@ -102,6 +104,12 @@ public:
      * Sends MAIN_EVENT_STOP_LISTENING to be handled in Run()
      */
     void StopListening();
+
+    /**
+     * [XFeature] Ensure device is in Idle state before media playback.
+     * Calls ToggleChatState() / SetDeviceState() as needed.
+     */
+    bool EnsureIdleForMedia();
 
     void Reboot();
     void WakeWordInvoke(const std::string& wake_word);

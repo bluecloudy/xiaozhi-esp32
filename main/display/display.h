@@ -15,6 +15,8 @@
 #include <string>
 #include <chrono>
 
+struct IdleCardInfo;
+
 class Theme {
 public:
     Theme(const std::string& name) : name_(name) {}
@@ -40,6 +42,11 @@ public:
     virtual Theme* GetTheme() { return current_theme_; }
     virtual void UpdateStatusBar(bool update_all = false);
     virtual void SetPowerSaveMode(bool on);
+
+    // Idle Card & Overlay control
+    virtual void ShowIdleCard(const IdleCardInfo& info) {}
+    virtual void HideIdleCard() {}
+    virtual void SetMediaOverlayActive(bool active) {}
     virtual void SetupUI() { 
         setup_ui_called_ = true;
     }

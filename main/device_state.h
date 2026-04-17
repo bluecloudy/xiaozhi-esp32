@@ -1,7 +1,7 @@
 #ifndef _DEVICE_STATE_H_
 #define _DEVICE_STATE_H_
 
-enum DeviceState {
+enum DeviceState : int {
     kDeviceStateUnknown,
     kDeviceStateStarting,
     kDeviceStateWifiConfiguring,

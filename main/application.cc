@@ -9,6 +9,8 @@
 #include "mcp_server.h"
 #include "assets.h"
 #include "settings.h"
+#include "x_feature_manager.h"
+
 
 #include <cstring>
 #include <esp_log.h>
@@ -88,7 +90,9 @@ void Application::Initialize() {
     // Add state change listeners
     state_machine_.AddStateChangeListener([this](DeviceState old_state, DeviceState new_state) {
         xEventGroupSetBits(event_group_, MAIN_EVENT_STATE_CHANGED);
+        XFeatureManager::GetInstance().BroadcastStateChanged(old_state, new_state);
     });
+
 
     // Start the clock timer to update the status bar
     esp_timer_start_periodic(clock_timer_handle_, 1000000);
@@ -160,7 +164,11 @@ void Application::Initialize() {
 
     // Update the status bar immediately to show the network state
     display->UpdateStatusBar(true);
+
+    // [XFeature] Initialize all registered features after board setup is complete
+    XFeatureManager::GetInstance().Initialize();
 }
+
 
 void Application::Run() {
     // Set the priority of the main task to 10
@@ -249,17 +257,20 @@ void Application::Run() {
             clock_ticks_++;
             auto display = Board::GetInstance().GetDisplay();
             display->UpdateStatusBar();
+            XFeatureManager::GetInstance().BroadcastClockTick(clock_ticks_);
         
             // Print debug info every 10 seconds
             if (clock_ticks_ % 10 == 0) {
                 SystemInfo::PrintHeapStats();
             }
         }
+
     }
 }
 
 void Application::HandleNetworkConnectedEvent() {
     ESP_LOGI(TAG, "Network connected");
+    XFeatureManager::GetInstance().BroadcastNetworkConnected();
     auto state = GetDeviceState();
 
     if (state == kDeviceStateStarting || state == kDeviceStateWifiConfiguring) {
@@ -669,6 +680,33 @@ void Application::StartListening() {
 
 void Application::StopListening() {
     xEventGroupSetBits(event_group_, MAIN_EVENT_STOP_LISTENING);
+}
+
+bool Application::EnsureIdleForMedia() {
+    DeviceState ds = state_machine_.GetState();
+
+    if (ds == kDeviceStateIdle || ds == kDeviceStateUnknown) {
+        return true;
+    }
+
+    if (ds != kDeviceStateListening && ds != kDeviceStateSpeaking) {
+        SetDeviceState(kDeviceStateIdle);
+        return true;
+    }
+
+    constexpr int kMaxRetries = 10;
+    constexpr int kRetryDelayMs = 200;
+    for (int i = 0; i < kMaxRetries; ++i) {
+        ToggleChatState();
+        vTaskDelay(pdMS_TO_TICKS(kRetryDelayMs));
+        ds = state_machine_.GetState();
+        if (ds == kDeviceStateIdle) {
+            return true;
+        }
+    }
+
+    SetDeviceState(kDeviceStateIdle);
+    return true;
 }
 
 void Application::HandleToggleChatEvent() {
