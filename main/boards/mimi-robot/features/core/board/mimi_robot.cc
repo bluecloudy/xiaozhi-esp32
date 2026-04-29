@@ -5,7 +5,11 @@
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_vendor.h>
 #include <esp_log.h>
+#include <sdkconfig.h>
 
+#include <string>
+
+#include "../power/power_manager.h"
 #include "application.h"
 #include "button.h"
 #include "codecs/no_audio_codec.h"
@@ -13,19 +17,20 @@
 #include "esp_video.h"
 #include "lamp_controller.h"
 #include "led/single_led.h"
-#include "mcp_server.h"
-#include "../power/power_manager.h"
+#include "settings.h"
 #include "system_reset.h"
 #include "wifi_board.h"
+#include "x_feature_manager.h"
 
-#include "../websocket_server/websocket_control_server.h"
+#include "../../../config.h"
 #include "../../shared/common.h"
 #include "../display/mimi_emoji_display.h"
-#include "../../../config.h"
+#include "../websocket_server/websocket_control_server.h"
 
 #define TAG "MimiRobot"
 
 extern void InitializeMimiController(const HardwareConfig& hw_config);
+extern std::unique_ptr<XFeature> CreateMimiMcpFeature();
 
 class MimiRobot : public WifiBoard {
 private:
@@ -121,7 +126,8 @@ private:
 
                 ret = i2c_master_transmit_receive(dev_handle, reg_addr_high, 2, &pid_high, 1, 200);
                 if (ret == ESP_OK) {
-                    ret = i2c_master_transmit_receive(dev_handle, reg_addr_low, 2, &pid_low, 1, 200);
+                    ret =
+                        i2c_master_transmit_receive(dev_handle, reg_addr_low, 2, &pid_low, 1, 200);
                     if (ret == ESP_OK) {
                         detected_pid = (pid_high << 8) | pid_low;
                         if (detected_pid != 0) {
@@ -223,6 +229,10 @@ public:
     const HardwareConfig& GetHardwareConfig() const { return hw_config_; }
 
     MimiCameraType GetCameraType() const { return camera_type_; }
+
+    void InitializeFeatures() override {
+        XFeatureManager::GetInstance().AddFeature(CreateMimiMcpFeature());
+    }
 
 private:
     void InitializeWebSocketControlServer() {
@@ -330,7 +340,8 @@ public:
           camera_type_(MIMI_CAMERA_NONE) {
 #if MIMI_HARDWARE_VERSION == MIMI_VERSION_AUTO
         has_camera_ = DetectHardwareVersion();
-        ESP_LOGI(TAG, "Auto-detected hardware variant: %s", has_camera_ ? "camera version" : "no-camera version");
+        ESP_LOGI(TAG, "Auto-detected hardware variant: %s",
+                 has_camera_ ? "camera version" : "no-camera version");
 #elif MIMI_HARDWARE_VERSION == MIMI_VERSION_CAMERA
         has_camera_ = DetectHardwareVersion();
         if (!has_camera_) {
