@@ -969,11 +969,10 @@ menu "XFeature"
         help
             Enable all extension features of XFeature:
             - Online Music Player (Esp32Music)
-            - Internet Radio Player (Esp32Radio)
             - SD Card Music & Video Player
             - Weather Idle Screen
             - QR Code IP Display
-
+    # Weather Idle Screen
     config WEATHER_IDLE_DISPLAY_ENABLE
         bool "Enable weather idle screen display"
         depends on XFEATURE_ENABLE
@@ -995,5 +994,44 @@ menu "XFeature"
         default "Hanoi"
         help
             City name to fetch weather data (in English).
+    # Weather Idle Screen
+
+    # QR Code IP Display
+    config QR_CODE_IP_DISPLAY_ENABLE
+        bool "Enable QR code IP display"
+        depends on XFEATURE_ENABLE
+        default n
+        help
+            Display device IP address as a QR code on the screen for easy scanning when connected to WiFi.
+    # QR Code IP Display
+
+    # Expressive Face
+    config EXPRESSIVE_FACE_ENABLE
+        bool "Enable feature-managed expressive LVGL face"
+        depends on XFEATURE_ENABLE
+        default y if BOARD_TYPE_MIMI_ROBOT
+        default n
+        help
+            Enables the reusable expressive face feature under x_feature_manager.
+            The renderer attaches to the display feature layer with no legacy face runtime dependency.
+    # Expressive Face
+
+    # Media Players
+    config MUSIC_ENABLE
+        bool "Enable Music Player"
+        depends on XFEATURE_ENABLE
+        default n
+        help
+            Enable the online music player feature, allowing users to play music from online sources.
+    # Media Players
+
+    # SD Card Media Player
+    config SD_CARD_ENABLE
+        bool "Enable SD Card Media Player"
+        depends on XFEATURE_ENABLE
+        default n
+        help
+            Enable the SD card media player feature, allowing users to play music and videos stored on an SD card.
+    # SD Card Media Player
 
 endmenu

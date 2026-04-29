@@ -521,7 +521,11 @@ void Application::InitializeProtocol() {
     });
     
     protocol_->OnAudioChannelClosed([this, &board]() {
-        board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
+        if (XFeatureManager::GetInstance().ShouldKeepNetworkPerformance()) {
+            board.SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
+        } else {
+            board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
+        }
         Schedule([this]() {
             auto display = Board::GetInstance().GetDisplay();
             display->SetChatMessage("system", "");
@@ -1151,4 +1155,3 @@ void Application::ResetProtocol() {
         protocol_.reset();
     });
 }
-
