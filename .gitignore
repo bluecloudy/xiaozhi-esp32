@@ -22,3 +22,5 @@ mmap_generate_*.h
 !.agents/.keep
 patch*.sh
 .patch*/
+sdkconfig.*
+!sdkconfig.default.*
