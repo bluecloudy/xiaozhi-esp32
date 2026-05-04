@@ -557,6 +557,12 @@ void Application::InitializeProtocol() {
                 auto text = cJSON_GetObjectItem(root, "text");
                 if (cJSON_IsString(text)) {
                     ESP_LOGI(TAG, "<< %s", text->valuestring);
+                    if (strstr(text->valuestring, "mimi-") || strstr(text->valuestring, "mimi_")) {
+                        ESP_LOGW(TAG,
+                                 "Remote MCP marker observed in assistant transcript. "
+                                 "If no later local MCP tools/call name=self.music.play_url appears, "
+                                 "playback failed before the ESP32 local player was invoked.");
+                    }
                     Schedule([display, message = std::string(text->valuestring)]() {
                         display->SetChatMessage("assistant", message.c_str());
                     });

@@ -20,6 +20,26 @@
 
 #define TAG "MCP"
 
+static std::string TruncateForLog(const std::string& value, size_t max_len = 512) {
+    if (value.size() <= max_len) {
+        return value;
+    }
+    return value.substr(0, max_len) + "...(truncated, len=" + std::to_string(value.size()) + ")";
+}
+
+static std::string JsonToString(const cJSON* json) {
+    if (!json) {
+        return "null";
+    }
+    char* json_str = cJSON_PrintUnformatted(json);
+    if (!json_str) {
+        return "<json-print-failed>";
+    }
+    std::string result(json_str);
+    cJSON_free(json_str);
+    return result;
+}
+
 McpServer::McpServer() {
 }
 
@@ -383,6 +403,7 @@ void McpServer::ParseMessage(const cJSON* json) {
         return;
     }
     auto id_int = id->valueint;
+    ESP_LOGI(TAG, "MCP inbound: id=%d method=%s", id_int, method_str.c_str());
     
     if (method_str == "initialize") {
         if (cJSON_IsObject(params)) {
@@ -436,6 +457,8 @@ void McpServer::ParseMessage(const cJSON* json) {
 }
 
 void McpServer::ReplyResult(int id, const std::string& result) {
+    ESP_LOGI(TAG, "MCP outbound result: id=%d payload=%s",
+             id, TruncateForLog(result).c_str());
     std::string payload = "{\"jsonrpc\":\"2.0\",\"id\":";
     payload += std::to_string(id) + ",\"result\":";
     payload += result;
@@ -444,6 +467,7 @@ void McpServer::ReplyResult(int id, const std::string& result) {
 }
 
 void McpServer::ReplyError(int id, const std::string& message) {
+    ESP_LOGE(TAG, "MCP outbound error: id=%d message=%s", id, message.c_str());
     std::string payload = "{\"jsonrpc\":\"2.0\",\"id\":";
     payload += std::to_string(id);
     payload += ",\"error\":{\"message\":\"";
@@ -520,6 +544,9 @@ void McpServer::DoToolCall(int id, const std::string& tool_name, const cJSON* to
         return;
     }
 
+    ESP_LOGI(TAG, "MCP tools/call: id=%d name=%s args=%s",
+             id, tool_name.c_str(), TruncateForLog(JsonToString(tool_arguments)).c_str());
+
     PropertyList arguments = (*tool_iter)->properties();
     try {
         for (auto& argument : arguments) {
@@ -552,9 +579,12 @@ void McpServer::DoToolCall(int id, const std::string& tool_name, const cJSON* to
 
     // Use main thread to call the tool
     auto& app = Application::GetInstance();
-    app.Schedule([this, id, tool_iter, arguments = std::move(arguments)]() {
+    app.Schedule([this, id, tool_iter, tool_name, arguments = std::move(arguments)]() {
         try {
-            ReplyResult(id, (*tool_iter)->Call(arguments));
+            std::string result = (*tool_iter)->Call(arguments);
+            ESP_LOGI(TAG, "MCP tools/result: id=%d name=%s result=%s",
+                     id, tool_name.c_str(), TruncateForLog(result).c_str());
+            ReplyResult(id, result);
         } catch (const std::exception& e) {
             ESP_LOGE(TAG, "tools/call: %s", e.what());
             ReplyError(id, e.what());
