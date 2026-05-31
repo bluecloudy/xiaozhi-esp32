@@ -2,6 +2,7 @@
 #include "features/core/servo/mimi_movements.cc"
 #include "features/core/controller/mimi_controller.cc"
 #include "features/core/mcp/mimi_mcp_feature.cc"
+#include "features/core/mcp/mimi_music_dance_feature.cc"
 #include "features/core/board/mimi_robot.cc"
 #include "features/core/display/mimi_emoji_display.cc"
 #include "features/core/display/mimi_icon_font.c"

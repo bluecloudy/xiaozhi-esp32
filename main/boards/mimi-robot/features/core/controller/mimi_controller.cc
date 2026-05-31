@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "../power/power_manager.h"
+#include "mimi_controller.h"
 #include "../servo/mimi_movements.h"
 #include "../servo/oscillator.h"
 #include "application.h"
@@ -12,7 +13,6 @@
 #include "sdkconfig.h"
 #include "settings.h"
 
-#include "../../../config.h"
 #include "../../shared/common.h"
 
 #define TAG "MimiController"
@@ -681,6 +681,7 @@ public:
     }
 
     const char* GetActionStatus() const { return is_action_in_progress_ ? "moving" : "idle"; }
+    bool HasHands() const { return has_hands_; }
 
     ~MimiController() {
         if (action_task_handle_ != nullptr) {
@@ -701,5 +702,36 @@ void InitializeMimiController(const HardwareConfig& hw_config) {
 }
 
 MimiController* GetMimiController() { return g_mimi_controller; }
+
+bool MimiControllerExecuteAction(MimiController* controller,
+                                 const std::string& action,
+                                 int steps,
+                                 int speed,
+                                 int direction,
+                                 int amount,
+                                 int arm_swing,
+                                 std::string* error) {
+    if (controller == nullptr) {
+        if (error) {
+            *error = "Error: Mimi controller is not initialized";
+        }
+        return false;
+    }
+    return controller->ExecuteAction(action, steps, speed, direction, amount, arm_swing, error);
+}
+
+void MimiControllerStopActions(MimiController* controller) {
+    if (controller != nullptr) {
+        controller->StopActions();
+    }
+}
+
+const char* MimiControllerGetActionStatus(MimiController* controller) {
+    return controller ? controller->GetActionStatus() : "unavailable";
+}
+
+bool MimiControllerHasHands(MimiController* controller) {
+    return controller && controller->HasHands();
+}
 
 #undef TAG

@@ -422,13 +422,14 @@ void Mimi::Flapping(float steps, int period, int height, int dir) {
 }
 
 void Mimi::WhirlwindLeg(float steps, int period, int amplitude) {
-    int target[SERVO_COUNT] = {90, 90, 180, 90, 45, 20};
-    MoveServos(100, target);
-    target[RIGHT_FOOT] = 160;
-    MoveServos(500, target);
-    vTaskDelay(pdMS_TO_TICKS(1000));
+    // Reduced foot angles (was 180/160) for stability without arm support
+    int target[SERVO_COUNT] = {90, 90, 150, 90, 45, 20};
+    MoveServos(300, target);  // was 100ms — slower transition reduces tipping inertia
+    target[RIGHT_FOOT] = 130;  // was 160
+    MoveServos(600, target);  // was 500ms
+    vTaskDelay(pdMS_TO_TICKS(300));  // was 1000ms — less time in one-leg stance
 
-    int C[SERVO_COUNT] = {90, 90, 180, 160, 45, 20};
+    int C[SERVO_COUNT] = {90, 90, 150, 130, 45, 20};
     int A[SERVO_COUNT] = {amplitude, 0, 0, 0, amplitude, 0};
     double phase_diff[SERVO_COUNT] = {DEG2RAD(20), 0, 0, 0, DEG2RAD(20), 0};
     Execute2(A, C, period, phase_diff, steps);
@@ -523,15 +524,10 @@ void Mimi::Fitness(float steps, int period, int amplitude) {
     if (!has_hands_) {
         return;
     }
-    int target[SERVO_COUNT] = {90, 90, 90, 0, 160, 135};
-    MoveServos(100, target);
-    target[LEFT_FOOT] = 20;
-    MoveServos(400, target);
-    vTaskDelay(pdMS_TO_TICKS(2000));
-
-    int C[SERVO_COUNT] = {90, 90, 20, 90, 160, 135};
-    int A[SERVO_COUNT] = {0, 0, 0, 0, 0, amplitude};
-    double phase_diff[SERVO_COUNT] = {0, 0, 0, 0, 0, 0};
+    // Standing arm curl — replaces push-up pose which required arm floor support
+    int C[SERVO_COUNT] = {90, 90, 90, 90, 90, 90};
+    int A[SERVO_COUNT] = {0, 0, 0, 0, amplitude, amplitude};
+    double phase_diff[SERVO_COUNT] = {0, 0, 0, 0, DEG2RAD(90), DEG2RAD(-90)};
     Execute2(A, C, period, phase_diff, steps);
 }
 
@@ -618,7 +614,7 @@ void Mimi::MagicCircle() {
     int O[SERVO_COUNT] = {0, 0, 5, -5, 0, 0};
     double phase_diff[SERVO_COUNT] = {0, 0, DEG2RAD(-90), DEG2RAD(-90), DEG2RAD(-90) , DEG2RAD(90)};
 
-    Execute(A, O, 700, phase_diff, 40);
+    Execute(A, O, 700, phase_diff, 8);
 }
 
 void Mimi::Showcase() {
