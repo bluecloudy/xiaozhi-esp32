@@ -31,6 +31,13 @@
 
 extern void InitializeMimiController(const HardwareConfig& hw_config);
 extern std::unique_ptr<XFeature> CreateMimiMcpFeature();
+extern "C" void BoardMusicDancePause();
+extern "C" void BoardMusicDanceResume();
+
+#ifdef CONFIG_IDLE_PET_ENABLE
+#include "../mcp/mimi_idle_pet_adapter.h"
+#include "idle_pet_feature.h"
+#endif
 
 class MimiRobot : public WifiBoard {
 private:
@@ -219,7 +226,14 @@ private:
                 EnterWifiConfigMode();
                 return;
             }
-            if (XFeatureManager::GetInstance().PauseMedia()) {
+            auto& fm = XFeatureManager::GetInstance();
+            if (fm.IsMediaPaused()) {
+                fm.ResumeMedia();
+                BoardMusicDanceResume();
+                return;
+            }
+            if (fm.PauseMedia()) {
+                BoardMusicDancePause();
                 app.StartListening();
                 return;
             }
@@ -239,6 +253,9 @@ public:
 
     void InitializeFeatures() override {
         XFeatureManager::GetInstance().AddFeature(CreateMimiMcpFeature());
+#ifdef CONFIG_IDLE_PET_ENABLE
+        IdlePetFeature::RegisterAdapter(std::make_unique<MimiIdlePetAdapter>());
+#endif
     }
 
 private:

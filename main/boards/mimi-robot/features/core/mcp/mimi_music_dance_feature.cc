@@ -45,7 +45,7 @@ constexpr DanceAction kRoutine[] = {
     {"moonwalk",      3, 700,  1,  30, 50, false},
     {"swing",         3, 700,  1,  35, 50, false},
     {"updown",        3, 700,  1,  35, 50, false},
-    {"jitter",        3, 500,  1,  20, 50, false},
+    {"shake_leg",      3, 500,  1,  20, 50, false},
     {"jump",          2, 700,  1,  30, 50, false},
     {"whirlwind_leg", 1, 900,  1,  20, 50, false},
     // Arm moves — only when has_hands
@@ -56,6 +56,7 @@ constexpr DanceAction kRoutine[] = {
 };
 
 std::atomic<bool> g_dance_active{false};
+std::atomic<bool> g_dance_paused{false};
 TaskHandle_t g_dance_task = nullptr;
 Esp32Music* g_music = nullptr;
 
@@ -64,6 +65,15 @@ cJSON* Result(bool success, const char* message) {
     cJSON_AddBoolToObject(json, "success", success);
     cJSON_AddStringToObject(json, "message", message);
     return json;
+}
+
+void PauseDance() {
+    g_dance_paused = true;
+    MimiControllerStopActions(GetMimiController());
+}
+
+void ResumeDance() {
+    g_dance_paused = false;
 }
 
 void StopDance(bool home) {
@@ -84,6 +94,7 @@ void StopAll() {
     if (g_music != nullptr) {
         BoardMusicDanceStopStreaming(g_music);
     }
+    g_dance_paused = false;
     StopDance(true);
 }
 
@@ -92,6 +103,10 @@ void DanceTask(void*) {
     size_t index = 0;
 
     while (g_dance_active.load()) {
+        if (g_dance_paused.load()) {
+            vTaskDelay(pdMS_TO_TICKS(100));
+            continue;
+        }
         if (g_music == nullptr || !BoardMusicDanceIsActive(g_music)) {
             break;
         }
@@ -183,6 +198,14 @@ cJSON* PlayMusicAndDance(Esp32Music* music, const PropertyList& properties) {
 
 } // namespace
 
+extern "C" void BoardMusicDancePause() {
+    PauseDance();
+}
+
+extern "C" void BoardMusicDanceResume() {
+    ResumeDance();
+}
+
 extern "C" void RegisterBoardMusicDanceTools(Esp32Music* music) {
     if (music == nullptr) return;
 
@@ -190,11 +213,13 @@ extern "C" void RegisterBoardMusicDanceTools(Esp32Music* music) {
     auto& mcp = McpServer::GetInstance();
 
     mcp.AddTool("self.music_dance.play_url",
-        "Play online music and make Mimi dance while the music is playing.\n"
-        "For requests like 'phat nhac Son Tung va nhay theo dieu nhac', first resolve the music "
-        "with remote `mimi_play(media_type=\"music\", query=<user text>, quality=\"128\")`. "
+        "Resolved URL-only local playback tool: play online music and make Mimi dance while the music is playing. "
+        "This tool does not search. Never call this tool with an empty url or with only a title/artist.\n"
+        "For requests like 'phat nhac Son Tung va nhay theo dieu nhac', strip command words "
+        "such as play music / dance to music first, then resolve the title or artist with "
+        "remote `mimi_play(q=\"<song title or artist>\", quality=\"128\")`. "
         "If only `item_id` is returned by `mimi_play` or `mimi_search`, call remote "
-        "`mimi_stream(media_type=\"music\", item_id=<id>, quality=\"128\")`. "
+        "`mimi_stream(item_id=<id>, quality=\"128\")`. "
         "Then call this local tool with `data.audio_url`, falling back to `data.stream_url`. "
         "Do not invent URLs. When the user asks to stop music or dancing, call "
         "`self.music_dance.stop`.\n"
