@@ -18,7 +18,7 @@ bool MimiControllerExecuteAction(MimiController* controller,
                                  int amount,
                                  int arm_swing,
                                  std::string* error);
-void MimiControllerStopActions(MimiController* controller);
+void MimiControllerStopActions(MimiController* controller, bool home = true);
 const char* MimiControllerGetActionStatus(MimiController* controller);
 bool MimiControllerHasHands(MimiController* controller);
 

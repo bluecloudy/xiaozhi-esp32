@@ -24,7 +24,7 @@ COMMANDS = [
     ("display_spectrum", "self.music.set_display_mode", {"mode": "spectrum"}),
     (
         "music",
-        "self.audio.play_url",
+        "self.media.play_url",
         {
             "url": MUSIC_URL,
             "type": "music",

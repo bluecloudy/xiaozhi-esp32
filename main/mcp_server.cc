@@ -476,6 +476,10 @@ void McpServer::ReplyError(int id, const std::string& message) {
     Application::GetInstance().SendMcpMessage(payload);
 }
 
+void McpServer::RejectRequest(int id, const std::string& message) {
+    ReplyError(id, message);
+}
+
 void McpServer::GetToolsList(int id, const std::string& cursor, bool list_user_only_tools) {
     const int max_payload_size = 8000;
     std::string json = "{\"tools\":[";
@@ -560,8 +564,10 @@ void McpServer::DoToolCall(int id, const std::string& tool_name, const cJSON* to
                     argument.set_value<int>(value->valueint);
                     found = true;
                 } else if (argument.type() == kPropertyTypeString && cJSON_IsString(value)) {
-                    argument.set_value<std::string>(value->valuestring);
-                    found = true;
+                    if (argument.has_default_value() || value->valuestring[0] != '\0') {
+                        argument.set_value<std::string>(value->valuestring);
+                        found = true;
+                    }
                 }
             }
 

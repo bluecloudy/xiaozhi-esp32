@@ -593,7 +593,7 @@ public:
         return true;
     }
 
-    void StopActions() {
+    void StopActions(bool home = true) {
         if (action_task_handle_ != nullptr) {
             vTaskDelete(action_task_handle_);
             action_task_handle_ = nullptr;
@@ -610,7 +610,9 @@ public:
             }
         }
         xQueueReset(action_queue_);
-        QueueAction(ACTION_HOME, 1, 1000, 1, 0);
+        if (home) {
+            QueueAction(ACTION_HOME, 1, 1000, 1, 0);
+        }
     }
 
     std::string SetTrim(const std::string& servo_type, int trim_value) {
@@ -720,9 +722,9 @@ bool MimiControllerExecuteAction(MimiController* controller,
     return controller->ExecuteAction(action, steps, speed, direction, amount, arm_swing, error);
 }
 
-void MimiControllerStopActions(MimiController* controller) {
+void MimiControllerStopActions(MimiController* controller, bool home) {
     if (controller != nullptr) {
-        controller->StopActions();
+        controller->StopActions(home);
     }
 }
 

@@ -1034,4 +1034,17 @@ menu "XFeature"
             Enable the SD card media player feature, allowing users to play music and videos stored on an SD card.
     # SD Card Media Player
 
+    # Idle Pet
+    config IDLE_PET_ENABLE
+        bool "Enable Idle Pet autonomous behavior"
+        depends on XFEATURE_ENABLE
+        default y if BOARD_TYPE_MIMI_ROBOT
+        default n
+        help
+            When device is idle, autonomously triggers mood-based servo movements and
+            proactive speech to give the device a desktop-pet personality.
+            Config (personality, frequency, speech) is persisted in NVS and adjustable
+            at runtime via MCP tools (self.idle_pet.*).
+    # Idle Pet
+
 endmenu

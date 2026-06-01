@@ -234,7 +234,6 @@ private:
             }
             if (fm.PauseMedia()) {
                 BoardMusicDancePause();
-                app.StartListening();
                 return;
             }
             app.ToggleChatState();

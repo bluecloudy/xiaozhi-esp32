@@ -4,6 +4,26 @@
 
 #include "freertos/idf_additions.h"
 
+namespace {
+
+constexpr int LeftHandHome() {
+    return HAND_HOME_POSITION;
+}
+
+constexpr int RightHandHome() {
+    return 180 - HAND_HOME_POSITION;
+}
+
+constexpr int LeftHandHomeOffset() {
+    return LeftHandHome() - 90;
+}
+
+constexpr int RightHandHomeOffset() {
+    return RightHandHome() - 90;
+}
+
+}  // namespace
+
 Mimi::Mimi() {
     is_mimi_resting_ = false;
     has_hands_ = false;
@@ -208,9 +228,9 @@ void Mimi::Home(bool hands_down) {
             if (i == LEFT_HAND || i == RIGHT_HAND) {
                 if (hands_down) {
                     if (i == LEFT_HAND) {
-                        homes[i] = HAND_HOME_POSITION;
+                        homes[i] = LeftHandHome();
                     } else {
-                        homes[i] = 180 - HAND_HOME_POSITION;
+                        homes[i] = RightHandHome();
                     }
                 } else {
                     homes[i] = servo_[i].GetPosition();
@@ -236,15 +256,15 @@ void Mimi::SetRestState(bool state) {
 }
 
 void Mimi::Jump(float steps, int period) {
-    int up[SERVO_COUNT] = {90, 90, 150, 30, HAND_HOME_POSITION, 180 - HAND_HOME_POSITION};
+    int up[SERVO_COUNT] = {90, 90, 150, 30, LeftHandHome(), RightHandHome()};
     MoveServos(period, up);
-    int down[SERVO_COUNT] = {90, 90, 90, 90, HAND_HOME_POSITION, 180 - HAND_HOME_POSITION};
+    int down[SERVO_COUNT] = {90, 90, 90, 90, LeftHandHome(), RightHandHome()};
     MoveServos(period, down);
 }
 
 void Mimi::Walk(float steps, int period, int dir, int amount) {
     int A[SERVO_COUNT] = {30, 30, 30, 30, 0, 0};
-    int O[SERVO_COUNT] = {0, 0, 5, -5, HAND_HOME_POSITION - 90, HAND_HOME_POSITION};
+    int O[SERVO_COUNT] = {0, 0, 5, -5, LeftHandHomeOffset(), RightHandHomeOffset()};
     double phase_diff[SERVO_COUNT] = {0, 0, DEG2RAD(dir * -90), DEG2RAD(dir * -90), 0, 0};
 
     if (amount > 0 && has_hands_) {
@@ -262,7 +282,7 @@ void Mimi::Walk(float steps, int period, int dir, int amount) {
 
 void Mimi::Turn(float steps, int period, int dir, int amount) {
     int A[SERVO_COUNT] = {30, 30, 30, 30, 0, 0};
-    int O[SERVO_COUNT] = {0, 0, 5, -5, HAND_HOME_POSITION - 90, HAND_HOME_POSITION};
+    int O[SERVO_COUNT] = {0, 0, 5, -5, LeftHandHomeOffset(), RightHandHomeOffset()};
     double phase_diff[SERVO_COUNT] = {0, 0, DEG2RAD(-90), DEG2RAD(-90), 0, 0};
 
     if (dir == LEFT) {
@@ -287,9 +307,9 @@ void Mimi::Turn(float steps, int period, int dir, int amount) {
 }
 
 void Mimi::Bend(int steps, int period, int dir) {
-    int bend1[SERVO_COUNT] = {90, 90, 62, 35, HAND_HOME_POSITION, 180 - HAND_HOME_POSITION};
-    int bend2[SERVO_COUNT] = {90, 90, 62, 105, HAND_HOME_POSITION, 180 - HAND_HOME_POSITION};
-    int homes[SERVO_COUNT] = {90, 90, 90, 90, HAND_HOME_POSITION, 180 - HAND_HOME_POSITION};
+    int bend1[SERVO_COUNT] = {90, 90, 62, 35, LeftHandHome(), RightHandHome()};
+    int bend2[SERVO_COUNT] = {90, 90, 62, 105, LeftHandHome(), RightHandHome()};
+    int homes[SERVO_COUNT] = {90, 90, 90, 90, LeftHandHome(), RightHandHome()};
 
     if (dir == -1) {
         bend1[2] = 180 - 35;
@@ -311,10 +331,10 @@ void Mimi::Bend(int steps, int period, int dir) {
 void Mimi::ShakeLeg(int steps, int period, int dir) {
     int numberLegMoves = 2;
 
-    int shake_leg1[SERVO_COUNT] = {90, 90, 58, 35, HAND_HOME_POSITION, 180 - HAND_HOME_POSITION};
-    int shake_leg2[SERVO_COUNT] = {90, 90, 58, 120, HAND_HOME_POSITION, 180 - HAND_HOME_POSITION};
-    int shake_leg3[SERVO_COUNT] = {90, 90, 58, 60, HAND_HOME_POSITION, 180 - HAND_HOME_POSITION};
-    int homes[SERVO_COUNT] = {90, 90, 90, 90, HAND_HOME_POSITION, 180 - HAND_HOME_POSITION};
+    int shake_leg1[SERVO_COUNT] = {90, 90, 58, 35, LeftHandHome(), RightHandHome()};
+    int shake_leg2[SERVO_COUNT] = {90, 90, 58, 120, LeftHandHome(), RightHandHome()};
+    int shake_leg3[SERVO_COUNT] = {90, 90, 58, 60, LeftHandHome(), RightHandHome()};
+    int homes[SERVO_COUNT] = {90, 90, 90, 90, LeftHandHome(), RightHandHome()};
 
     if (dir == LEFT) {
         shake_leg1[2] = 180 - 35;
@@ -344,13 +364,13 @@ void Mimi::ShakeLeg(int steps, int period, int dir) {
 }
 
 void Mimi::Sit() {
-    int target[SERVO_COUNT] = {120, 60, 0, 180, 45, 135};
+    int target[SERVO_COUNT] = {120, 60, 0, 180, LeftHandHome(), RightHandHome()};
     MoveServos(600, target);
 }
 
 void Mimi::UpDown(float steps, int period, int height) {
     int A[SERVO_COUNT] = {0, 0, height, height, 0, 0};
-    int O[SERVO_COUNT] = {0, 0, height, -height, HAND_HOME_POSITION, 180 - HAND_HOME_POSITION};
+    int O[SERVO_COUNT] = {0, 0, height, -height, LeftHandHomeOffset(), RightHandHomeOffset()};
     double phase_diff[SERVO_COUNT] = {0, 0, DEG2RAD(-90), DEG2RAD(90), 0, 0};
 
     Execute(A, O, period, phase_diff, steps);
@@ -359,7 +379,7 @@ void Mimi::UpDown(float steps, int period, int height) {
 void Mimi::Swing(float steps, int period, int height) {
     int A[SERVO_COUNT] = {0, 0, height, height, 0, 0};
     int O[SERVO_COUNT] = {
-        0, 0, height / 2, -height / 2, HAND_HOME_POSITION, 180 - HAND_HOME_POSITION};
+        0, 0, height / 2, -height / 2, LeftHandHomeOffset(), RightHandHomeOffset()};
     double phase_diff[SERVO_COUNT] = {0, 0, DEG2RAD(0), DEG2RAD(0), 0, 0};
 
     Execute(A, O, period, phase_diff, steps);
@@ -367,7 +387,7 @@ void Mimi::Swing(float steps, int period, int height) {
 
 void Mimi::TiptoeSwing(float steps, int period, int height) {
     int A[SERVO_COUNT] = {0, 0, height, height, 0, 0};
-    int O[SERVO_COUNT] = {0, 0, height, -height, HAND_HOME_POSITION, 180 - HAND_HOME_POSITION};
+    int O[SERVO_COUNT] = {0, 0, height, -height, LeftHandHomeOffset(), RightHandHomeOffset()};
     double phase_diff[SERVO_COUNT] = {0, 0, 0, 0, 0, 0};
 
     Execute(A, O, period, phase_diff, steps);
@@ -376,7 +396,7 @@ void Mimi::TiptoeSwing(float steps, int period, int height) {
 void Mimi::Jitter(float steps, int period, int height) {
     height = std::min(25, height);
     int A[SERVO_COUNT] = {height, height, 0, 0, 0, 0};
-    int O[SERVO_COUNT] = {0, 0, 0, 0, HAND_HOME_POSITION, 180 - HAND_HOME_POSITION};
+    int O[SERVO_COUNT] = {0, 0, 0, 0, LeftHandHomeOffset(), RightHandHomeOffset()};
     double phase_diff[SERVO_COUNT] = {DEG2RAD(-90), DEG2RAD(90), 0, 0, 0, 0};
 
     Execute(A, O, period, phase_diff, steps);
@@ -386,7 +406,7 @@ void Mimi::AscendingTurn(float steps, int period, int height) {
     height = std::min(13, height);
     int A[SERVO_COUNT] = {height, height, height, height, 0, 0};
     int O[SERVO_COUNT] = {
-        0, 0, height + 4, -height + 4, HAND_HOME_POSITION, 180 - HAND_HOME_POSITION};
+        0, 0, height + 4, -height + 4, LeftHandHomeOffset(), RightHandHomeOffset()};
     double phase_diff[SERVO_COUNT] = {DEG2RAD(-90), DEG2RAD(90), DEG2RAD(-90), DEG2RAD(90), 0, 0};
 
     Execute(A, O, period, phase_diff, steps);
@@ -395,7 +415,7 @@ void Mimi::AscendingTurn(float steps, int period, int height) {
 void Mimi::Moonwalker(float steps, int period, int height, int dir) {
     int A[SERVO_COUNT] = {0, 0, height, height, 0, 0};
     int O[SERVO_COUNT] = {
-        0, 0, height / 2 + 2, -height / 2 - 2, HAND_HOME_POSITION, 180 - HAND_HOME_POSITION};
+        0, 0, height / 2 + 2, -height / 2 - 2, LeftHandHomeOffset(), RightHandHomeOffset()};
     int phi = -dir * 90;
     double phase_diff[SERVO_COUNT] = {0, 0, DEG2RAD(phi), DEG2RAD(-60 * dir + phi), 0, 0};
 
@@ -405,7 +425,7 @@ void Mimi::Moonwalker(float steps, int period, int height, int dir) {
 void Mimi::Crusaito(float steps, int period, int height, int dir) {
     int A[SERVO_COUNT] = {25, 25, height, height, 0, 0};
     int O[SERVO_COUNT] = {
-        0, 0, height / 2 + 4, -height / 2 - 4, HAND_HOME_POSITION, 180 - HAND_HOME_POSITION};
+        0, 0, height / 2 + 4, -height / 2 - 4, LeftHandHomeOffset(), RightHandHomeOffset()};
     double phase_diff[SERVO_COUNT] = {90, 90, DEG2RAD(0), DEG2RAD(-60 * dir), 0, 0};
 
     Execute(A, O, period, phase_diff, steps);
@@ -414,7 +434,7 @@ void Mimi::Crusaito(float steps, int period, int height, int dir) {
 void Mimi::Flapping(float steps, int period, int height, int dir) {
     int A[SERVO_COUNT] = {12, 12, height, height, 0, 0};
     int O[SERVO_COUNT] = {
-        0, 0, height - 10, -height + 10, HAND_HOME_POSITION, 180 - HAND_HOME_POSITION};
+        0, 0, height - 10, -height + 10, LeftHandHomeOffset(), RightHandHomeOffset()};
     double phase_diff[SERVO_COUNT] = {
         DEG2RAD(0), DEG2RAD(180), DEG2RAD(-90 * dir), DEG2RAD(90 * dir), 0, 0};
 
@@ -423,13 +443,13 @@ void Mimi::Flapping(float steps, int period, int height, int dir) {
 
 void Mimi::WhirlwindLeg(float steps, int period, int amplitude) {
     // Reduced foot angles (was 180/160) for stability without arm support
-    int target[SERVO_COUNT] = {90, 90, 150, 90, 45, 20};
+    int target[SERVO_COUNT] = {90, 90, 150, 90, LeftHandHome(), RightHandHome()};
     MoveServos(300, target);  // was 100ms — slower transition reduces tipping inertia
     target[RIGHT_FOOT] = 130;  // was 160
     MoveServos(600, target);  // was 500ms
     vTaskDelay(pdMS_TO_TICKS(300));  // was 1000ms — less time in one-leg stance
 
-    int C[SERVO_COUNT] = {90, 90, 150, 130, 45, 20};
+    int C[SERVO_COUNT] = {90, 90, 150, 130, LeftHandHome(), RightHandHome()};
     int A[SERVO_COUNT] = {amplitude, 0, 0, 0, amplitude, 0};
     double phase_diff[SERVO_COUNT] = {DEG2RAD(20), 0, 0, 0, DEG2RAD(20), 0};
     Execute2(A, C, period, phase_diff, steps);
@@ -440,7 +460,7 @@ void Mimi::HandsUp(int period, int dir) {
         return;
     }
 
-    int target[SERVO_COUNT] = {90, 90, 90, 90, HAND_HOME_POSITION, 180 - HAND_HOME_POSITION};
+    int target[SERVO_COUNT] = {90, 90, 90, 90, LeftHandHome(), RightHandHome()};
 
     if (dir == 0) {
         target[LEFT_HAND] = 170;
@@ -461,7 +481,7 @@ void Mimi::HandsDown(int period, int dir) {
         return;
     }
 
-    int target[SERVO_COUNT] = {90, 90, 90, 90, HAND_HOME_POSITION, 180 - HAND_HOME_POSITION};
+    int target[SERVO_COUNT] = {90, 90, 90, 90, LeftHandHome(), RightHandHome()};
 
     if (dir == LEFT) {
         target[RIGHT_HAND] = servo_[RIGHT_HAND].GetPosition();
@@ -477,13 +497,13 @@ void Mimi::HandWave(int dir) {
         return;
     }
     if (dir == LEFT) {
-        int center_angle[SERVO_COUNT] = {90, 90, 90, 90, 160, 135};
+        int center_angle[SERVO_COUNT] = {90, 90, 90, 90, 160, RightHandHome()};
         int A[SERVO_COUNT] = {0, 0, 0, 0, 20, 0};
         double phase_diff[SERVO_COUNT] = {0, 0, 0, 0, DEG2RAD(90), 0};
         Execute2(A, center_angle, 300, phase_diff, 5);
     }
     else if (dir == RIGHT) {
-        int center_angle[SERVO_COUNT] = {90, 90, 90, 90, 45, 20};
+        int center_angle[SERVO_COUNT] = {90, 90, 90, 90, LeftHandHome(), 20};
         int A[SERVO_COUNT] = {0, 0, 0, 0, 0, 20};
         double phase_diff[SERVO_COUNT] = {0, 0, 0, 0, 0, DEG2RAD(90)};
         Execute2(A, center_angle, 300, phase_diff, 5);
@@ -501,7 +521,7 @@ void Mimi::Windmill(float steps, int period, int amplitude) {
         return;
     }
 
-    int center_angle[SERVO_COUNT] = {90, 90, 90, 90, 90, 90};
+    int center_angle[SERVO_COUNT] = {90, 90, 90, 90, LeftHandHome(), RightHandHome()};
     int A[SERVO_COUNT] = {0, 0, 0, 0, amplitude, amplitude};
     double phase_diff[SERVO_COUNT] = {0, 0, 0, 0, DEG2RAD(90), DEG2RAD(90)};
     Execute2(A, center_angle, period, phase_diff, steps);
@@ -514,7 +534,7 @@ void Mimi::Takeoff(float steps, int period, int amplitude) {
 
     Home(true);
 
-    int center_angle[SERVO_COUNT] = {90, 90, 90, 90, 90, 90};
+    int center_angle[SERVO_COUNT] = {90, 90, 90, 90, LeftHandHome(), RightHandHome()};
     int A[SERVO_COUNT] = {0, 0, 0, 0, amplitude, amplitude};
     double phase_diff[SERVO_COUNT] = {0, 0, 0, 0, DEG2RAD(90), DEG2RAD(-90)};
     Execute2(A, center_angle, period, phase_diff, steps);
@@ -525,7 +545,7 @@ void Mimi::Fitness(float steps, int period, int amplitude) {
         return;
     }
     // Standing arm curl — replaces push-up pose which required arm floor support
-    int C[SERVO_COUNT] = {90, 90, 90, 90, 90, 90};
+    int C[SERVO_COUNT] = {90, 90, 90, 90, LeftHandHome(), RightHandHome()};
     int A[SERVO_COUNT] = {0, 0, 0, 0, amplitude, amplitude};
     double phase_diff[SERVO_COUNT] = {0, 0, 0, 0, DEG2RAD(90), DEG2RAD(-90)};
     Execute2(A, C, period, phase_diff, steps);
@@ -536,17 +556,17 @@ void Mimi::Greeting(int dir, float steps) {
         return;
     }
     if (dir == LEFT) {
-        int target[SERVO_COUNT] = {90, 90, 150, 150, 45, 135};
+        int target[SERVO_COUNT] = {90, 90, 150, 150, LeftHandHome(), RightHandHome()};
         MoveServos(400, target);
-        int C[SERVO_COUNT] = {90, 90, 150, 150, 160, 135};
+        int C[SERVO_COUNT] = {90, 90, 150, 150, 160, RightHandHome()};
         int A[SERVO_COUNT] = {0, 0, 0, 0, 20, 0};
         double phase_diff[SERVO_COUNT] = {0, 0, 0, 0, 0, 0};
         Execute2(A, C, 300, phase_diff, steps);
     }
     else if (dir == RIGHT) {
-        int target[SERVO_COUNT] = {90, 90, 30, 30, 45, 135};
+        int target[SERVO_COUNT] = {90, 90, 30, 30, LeftHandHome(), RightHandHome()};
         MoveServos(400, target);
-        int C[SERVO_COUNT] = {90, 90, 30, 30, 45, 20};
+        int C[SERVO_COUNT] = {90, 90, 30, 30, LeftHandHome(), 20};
         int A[SERVO_COUNT] = {0, 0, 0, 0, 0, 20};
         double phase_diff[SERVO_COUNT] = {0, 0, 0, 0, 0, 0};
         Execute2(A, C, 300, phase_diff, steps);
@@ -559,17 +579,17 @@ void Mimi::Shy(int dir, float steps) {
     }
 
     if (dir == LEFT) {
-        int target[SERVO_COUNT] = {90, 90, 150, 150, 45, 135};
+        int target[SERVO_COUNT] = {90, 90, 150, 150, LeftHandHome(), RightHandHome()};
         MoveServos(400, target);
-        int C[SERVO_COUNT] = {90, 90, 150, 150, 45, 135};
+        int C[SERVO_COUNT] = {90, 90, 150, 150, LeftHandHome(), RightHandHome()};
         int A[SERVO_COUNT] = {0, 0, 0, 0, 20, 20};
         double phase_diff[SERVO_COUNT] = {0, 0, 0, 0, DEG2RAD(90), DEG2RAD(-90)};
         Execute2(A, C, 300, phase_diff, steps);
     }
     else if (dir == RIGHT) {
-        int target[SERVO_COUNT] = {90, 90, 30, 30, 45, 135};
+        int target[SERVO_COUNT] = {90, 90, 30, 30, LeftHandHome(), RightHandHome()};
         MoveServos(400, target);
-        int C[SERVO_COUNT] = {90, 90, 30, 30, 45, 135};
+        int C[SERVO_COUNT] = {90, 90, 30, 30, LeftHandHome(), RightHandHome()};
         int A[SERVO_COUNT] = {0, 0, 0, 0, 0, 20};
         double phase_diff[SERVO_COUNT] = {0, 0, 0, 0, DEG2RAD(90), DEG2RAD(-90)};
         Execute2(A, C, 300, phase_diff, steps);
@@ -584,22 +604,22 @@ void Mimi::RadioCalisthenics() {
     const int period = 1000; 
     const float steps = 8.0; 
 
-    int C1[SERVO_COUNT] = {90, 90, 90, 90, 145, 45};
+    int C1[SERVO_COUNT] = {90, 90, 90, 90, LeftHandHome() + 100, RightHandHome() - 90};
     int A1[SERVO_COUNT] = {0, 0, 0, 0, 45, 45};
     double phase_diff1[SERVO_COUNT] = {0, 0, 0, 0, DEG2RAD(90), DEG2RAD(-90)};
     Execute2(A1, C1, period, phase_diff1, steps);
 
-    int C2[SERVO_COUNT] = {90, 90, 115, 65, 90, 90};
+    int C2[SERVO_COUNT] = {90, 90, 115, 65, LeftHandHome(), RightHandHome()};
     int A2[SERVO_COUNT] = {0, 0, 25, 25, 0, 0};
     double phase_diff2[SERVO_COUNT] = {0, 0, DEG2RAD(90), DEG2RAD(-90), 0, 0};
     Execute2(A2, C2, period, phase_diff2, steps);
     
-    int C3[SERVO_COUNT] = {90, 90, 130, 130, 90, 90};
+    int C3[SERVO_COUNT] = {90, 90, 130, 130, LeftHandHome(), RightHandHome()};
     int A3[SERVO_COUNT] = {0, 0, 0, 0, 20, 0};
     double phase_diff3[SERVO_COUNT] = {0, 0, 0, 0, 0, 0};
     Execute2(A3, C3, period, phase_diff3, steps);
 
-    int C4[SERVO_COUNT] = {90, 90, 50, 50, 90, 90};
+    int C4[SERVO_COUNT] = {90, 90, 50, 50, LeftHandHome(), RightHandHome()};
     int A4[SERVO_COUNT] = {0, 0, 0, 0, 0, 20};
     double phase_diff4[SERVO_COUNT] = {0, 0, 0, 0, 0, 0};
     Execute2(A4, C4, period, phase_diff4, steps);
@@ -611,7 +631,7 @@ void Mimi::MagicCircle() {
     }
 
     int A[SERVO_COUNT] = {30, 30, 30, 30, 50, 50};
-    int O[SERVO_COUNT] = {0, 0, 5, -5, 0, 0};
+    int O[SERVO_COUNT] = {0, 0, 5, -5, LeftHandHomeOffset(), RightHandHomeOffset()};
     double phase_diff[SERVO_COUNT] = {0, 0, DEG2RAD(-90), DEG2RAD(-90), DEG2RAD(-90) , DEG2RAD(90)};
 
     Execute(A, O, 700, phase_diff, 8);

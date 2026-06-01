@@ -21,6 +21,43 @@
 
 #define TAG "Application"
 
+namespace {
+
+bool IsReadOnlyMcpTool(const std::string& name) {
+    return name == "self.get_device_status" ||
+           name == "self.mimi.get_status" ||
+           name == "self.mimi.get_trims" ||
+           name == "self.mimi.get_ip" ||
+           name == "self.battery.get_level" ||
+           name == "self.idle_pet.get_config" ||
+           name == "self.idle_pet.get_status";
+}
+
+bool IsMcpToolCall(const cJSON* payload, int* id, std::string* tool_name) {
+    if (!cJSON_IsObject(payload)) {
+        return false;
+    }
+
+    auto method = cJSON_GetObjectItem(payload, "method");
+    if (!cJSON_IsString(method) || strcmp(method->valuestring, "tools/call") != 0) {
+        return false;
+    }
+
+    auto request_id = cJSON_GetObjectItem(payload, "id");
+    if (cJSON_IsNumber(request_id) && id != nullptr) {
+        *id = request_id->valueint;
+    }
+
+    auto params = cJSON_GetObjectItem(payload, "params");
+    auto name = cJSON_IsObject(params) ? cJSON_GetObjectItem(params, "name") : nullptr;
+    if (cJSON_IsString(name) && tool_name != nullptr) {
+        *tool_name = name->valuestring;
+    }
+    return true;
+}
+
+} // namespace
+
 
 Application::Application() {
     event_group_ = xEventGroupCreate();
@@ -525,6 +562,7 @@ void Application::InitializeProtocol() {
     });
     
     protocol_->OnAudioChannelClosed([this, &board]() {
+        proactive_interaction_active_ = false;
         if (XFeatureManager::GetInstance().ShouldKeepNetworkPerformance()) {
             board.SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
         } else {
@@ -549,6 +587,7 @@ void Application::InitializeProtocol() {
                 });
             } else if (strcmp(state->valuestring, "stop") == 0) {
                 Schedule([this]() {
+                    proactive_interaction_active_ = false;
                     if (GetDeviceState() == kDeviceStateSpeaking) {
                         if (listening_mode_ == kListeningModeManualStop) {
                             SetDeviceState(kDeviceStateIdle);
@@ -590,6 +629,19 @@ void Application::InitializeProtocol() {
         } else if (strcmp(type->valuestring, "mcp") == 0) {
             auto payload = cJSON_GetObjectItem(root, "payload");
             if (cJSON_IsObject(payload)) {
+                int request_id = -1;
+                std::string tool_name;
+                if (proactive_interaction_active_ &&
+                    IsMcpToolCall(payload, &request_id, &tool_name) &&
+                    !IsReadOnlyMcpTool(tool_name)) {
+                    ESP_LOGW(TAG, "Reject proactive idle MCP tool call: %s", tool_name.c_str());
+                    if (request_id >= 0) {
+                        McpServer::GetInstance().RejectRequest(
+                            request_id,
+                            "Tool calls that change device state are disabled during idle proactive events");
+                    }
+                    return;
+                }
                 McpServer::GetInstance().ParseMessage(payload);
             }
         } else if (strcmp(type->valuestring, "system") == 0) {
@@ -891,7 +943,7 @@ void Application::ContinueWakeWordInvoke(const std::string& wake_word) {
         protocol_->SendAudio(std::move(packet));
     }
     // Set the chat state to wake word detected
-    protocol_->SendWakeWordDetected(wake_word);
+    protocol_->SendProactiveText(wake_word);
     SetListeningMode(GetDefaultListeningMode());
 #else
     // Set flag to play popup sound after state changes to listening
@@ -1015,16 +1067,21 @@ void Application::RequestProactiveInteraction(const std::string& prompt) {
                 if (GetDeviceState() != kDeviceStateConnecting) return;
                 if (!protocol_->OpenAudioChannel()) {
                     ESP_LOGW(TAG, "IdlePet: failed to open audio channel");
+                    proactive_interaction_active_ = false;
                     SetDeviceState(kDeviceStateIdle);
                     return;
                 }
+                proactive_interaction_active_ = true;
                 protocol_->SendProactiveText(prompt);
-                SetListeningMode(kListeningModeManualStop);
+                listening_mode_ = kListeningModeManualStop;
+                SetDeviceState(kDeviceStateSpeaking);
             });
         } else {
-            // Channel already open — go straight to Listening
+            // Channel already open: send the event without enabling microphone capture.
+            proactive_interaction_active_ = true;
             protocol_->SendProactiveText(prompt);
-            SetListeningMode(kListeningModeManualStop);
+            listening_mode_ = kListeningModeManualStop;
+            SetDeviceState(kDeviceStateSpeaking);
         }
     });
 }

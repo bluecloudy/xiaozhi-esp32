@@ -25,7 +25,7 @@ STORY_URL = os.environ.get(
 
 COMMANDS = [
     ("display_spectrum", "self.music.set_display_mode", {"mode": "spectrum"}),
-    ("music_simple", "self.music.play_url", {"url": MUSIC_URL}),
+    ("music_simple", "self.media.play_url", {"url": MUSIC_URL}),
     (
         "typed_music",
         "self.audio.play_url",
@@ -50,17 +50,6 @@ COMMANDS = [
             "artist": "",
             "source_name": "FIP",
             "lyric_url": "",
-            "duration_ms": 0,
-            "decoder": "auto",
-        },
-    ),
-    (
-        "story_wrapper",
-        "self.audio_story.play_url",
-        {
-            "url": STORY_URL,
-            "title": "MCP story wrapper test",
-            "source_name": "mcp_robot_tester",
             "duration_ms": 0,
             "decoder": "auto",
         },

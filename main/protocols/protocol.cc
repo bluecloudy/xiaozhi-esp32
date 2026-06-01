@@ -78,6 +78,20 @@ void Protocol::SendMcpMessage(const std::string& payload) {
     SendText(message);
 }
 
+void Protocol::SendProactiveText(const std::string& text) {
+    // Escape double-quotes inside the prompt so the JSON stays valid
+    std::string safe;
+    safe.reserve(text.size());
+    for (char c : text) {
+        if (c == '"') safe += "\\\"";
+        else if (c == '\\') safe += "\\\\";
+        else safe += c;
+    }
+    std::string json = "{\"session_id\":\"" + session_id_ +
+        "\",\"type\":\"listen\",\"state\":\"detect\",\"text\":\"" + safe + "\"}";
+    SendText(json);
+}
+
 bool Protocol::IsTimeout() const {
     const int kTimeoutSeconds = 120;
     auto now = std::chrono::steady_clock::now();

@@ -111,6 +111,13 @@ public:
      */
     bool EnsureIdleForMedia();
 
+    /**
+     * [IdlePet] Open audio channel (if needed) and send a proactive prompt to the server.
+     * No-op if device is not Idle or protocol unavailable. Must be called from any task
+     * (internally uses Schedule for main-task safety).
+     */
+    void RequestProactiveInteraction(const std::string& prompt);
+
     void Reboot();
     void WakeWordInvoke(const std::string& wake_word);
     bool UpgradeFirmware(const std::string& url, const std::string& version = "");
@@ -148,6 +155,7 @@ private:
     bool aborted_ = false;
     bool assets_version_checked_ = false;
     bool play_popup_on_listening_ = false;  // Flag to play popup sound after state changes to listening
+    bool proactive_interaction_active_ = false;
     int clock_ticks_ = 0;
     TaskHandle_t activation_task_handle_ = nullptr;
 

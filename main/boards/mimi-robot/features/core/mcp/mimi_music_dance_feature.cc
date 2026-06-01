@@ -69,7 +69,7 @@ cJSON* Result(bool success, const char* message) {
 
 void PauseDance() {
     g_dance_paused = true;
-    MimiControllerStopActions(GetMimiController());
+    MimiControllerStopActions(GetMimiController(), false);
 }
 
 void ResumeDance() {
