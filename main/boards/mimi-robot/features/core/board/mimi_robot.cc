@@ -219,7 +219,14 @@ private:
                 EnterWifiConfigMode();
                 return;
             }
+            if (XFeatureManager::GetInstance().PauseMedia()) {
+                app.StartListening();
+                return;
+            }
             app.ToggleChatState();
+        });
+        boot_button_.OnDoubleClick([this]() {
+            XFeatureManager::GetInstance().StopMedia();
         });
     }
 
