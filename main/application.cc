@@ -507,7 +507,11 @@ void Application::InitializeProtocol() {
     });
     
     protocol_->OnIncomingAudio([this](std::unique_ptr<AudioStreamPacket> packet) {
-        if (GetDeviceState() == kDeviceStateSpeaking) {
+        auto state = GetDeviceState();
+        // Accept audio when Speaking OR when still transitioning from Listening to Speaking.
+        // tts/start and audio may arrive together; state change is deferred to main task,
+        // so audio can arrive before the Speaking state is active.
+        if (state == kDeviceStateSpeaking || state == kDeviceStateListening) {
             audio_service_.PushPacketToDecodeQueue(std::move(packet));
         }
     });
@@ -560,7 +564,7 @@ void Application::InitializeProtocol() {
                     if (strstr(text->valuestring, "mimi-") || strstr(text->valuestring, "mimi_")) {
                         ESP_LOGW(TAG,
                                  "Remote MCP marker observed in assistant transcript. "
-                                 "If no later local MCP tools/call name=self.music.play_url appears, "
+                                 "If no later local MCP tools/call name=self.media.play_url appears, "
                                  "playback failed before the ESP32 local player was invoked.");
                     }
                     Schedule([display, message = std::string(text->valuestring)]() {
@@ -959,7 +963,10 @@ void Application::HandleStateChangedEvent() {
                 // Only AFE wake word can be detected in speaking mode
                 audio_service_.EnableWakeWordDetection(audio_service_.IsAfeWakeWord());
             }
-            audio_service_.ResetDecoder();
+            // ResetDecoder is intentionally NOT called here: when transitioning from
+            // Listening, EnableVoiceProcessing(true) already called ResetDecoder().
+            // Calling it again would clear TTS audio that arrived during the Listening→
+            // Speaking race (network thread queues audio before main task updates state).
             break;
         case kDeviceStateWifiConfiguring:
             audio_service_.EnableVoiceProcessing(false);
@@ -994,6 +1001,32 @@ void Application::SetListeningMode(ListeningMode mode) {
 
 ListeningMode Application::GetDefaultListeningMode() const {
     return aec_mode_ == kAecOff ? kListeningModeAutoStop : kListeningModeRealtime;
+}
+
+void Application::RequestProactiveInteraction(const std::string& prompt) {
+    Schedule([this, prompt]() {
+        if (GetDeviceState() != kDeviceStateIdle) return;
+        if (!protocol_) return;
+
+        if (!protocol_->IsAudioChannelOpened()) {
+            SetDeviceState(kDeviceStateConnecting);
+            // Let the state-change UI update first, then open channel (may block ~1s)
+            Schedule([this, prompt]() {
+                if (GetDeviceState() != kDeviceStateConnecting) return;
+                if (!protocol_->OpenAudioChannel()) {
+                    ESP_LOGW(TAG, "IdlePet: failed to open audio channel");
+                    SetDeviceState(kDeviceStateIdle);
+                    return;
+                }
+                protocol_->SendProactiveText(prompt);
+                SetListeningMode(kListeningModeManualStop);
+            });
+        } else {
+            // Channel already open — go straight to Listening
+            protocol_->SendProactiveText(prompt);
+            SetListeningMode(kListeningModeManualStop);
+        }
+    });
 }
 
 void Application::Reboot() {
