@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MCP WebSocket Tester</title>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --border: #d6dde5;
+      --text: #1f2933;
+      --muted: #697586;
+      --primary: #1264a3;
+      --primary-dark: #0b4f82;
+      --success: #027a48;
+      --warning: #b54708;
+      --danger: #b42318;
+      --code-bg: #eef2f7;
+      --code: #111827;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); }
+    button, input, select, textarea { font: inherit; }
+    button {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--panel);
+      color: var(--text);
+      padding: 8px 12px;
+      cursor: pointer;
+    }
+    button:hover:not(:disabled) { border-color: #9aa8b7; background: #f8fafc; }
+    button:disabled { cursor: not-allowed; opacity: 0.5; }
+    button.primary { border-color: var(--primary); background: var(--primary); color: #fff; }
+    button.primary:hover:not(:disabled) { border-color: var(--primary-dark); background: var(--primary-dark); }
+    button.danger { border-color: #f4c7c3; color: var(--danger); }
+
+    header { border-bottom: 1px solid var(--border); background: var(--panel); }
+    .header-inner {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 18px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    h1 { margin: 0; font-size: 20px; font-weight: 650; letter-spacing: 0; }
+    .status { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; }
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #98a2b3; }
+    .status-dot.connected { background: var(--success); }
+    .status-dot.connecting { background: var(--warning); }
+
+    main {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 24px;
+      display: grid;
+      grid-template-columns: minmax(420px, 520px) minmax(0, 1fr);
+      gap: 20px;
+    }
+    section { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; min-width: 0; }
+    .section-header {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .section-header h2 { margin: 0; font-size: 15px; font-weight: 650; letter-spacing: 0; }
+    .section-body { padding: 16px; }
+    .stack { display: grid; gap: 14px; }
+    .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+    label { display: grid; gap: 6px; color: var(--muted); font-size: 13px; font-weight: 550; }
+    input[type="text"], textarea {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--text);
+      padding: 9px 10px;
+      outline: none;
+    }
+    input[type="text"]:focus, textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(18,100,163,0.12); }
+    textarea {
+      min-height: 150px;
+      resize: vertical;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .checkbox { display: flex; align-items: center; gap: 8px; color: var(--text); font-size: 14px; font-weight: 500; }
+    .checkbox input { width: 16px; height: 16px; }
+    .hint { color: var(--muted); font-size: 13px; line-height: 1.45; }
+
+    .preset-list { max-height: 360px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; }
+    .preset-row {
+      width: 100%;
+      border: 0;
+      border-bottom: 1px solid var(--border);
+      border-radius: 0;
+      display: grid;
+      gap: 4px;
+      text-align: left;
+      padding: 10px 12px;
+      background: #fff;
+    }
+    .preset-row:last-child { border-bottom: 0; }
+    .preset-row.active { background: #eaf4fb; }
+    .tool-name {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 12px;
+      color: var(--code);
+      word-break: break-word;
+    }
+    .tool-meta { color: var(--muted); font-size: 12px; line-height: 1.35; }
+    .badge {
+      display: inline-flex;
+      width: max-content;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 2px 7px;
+      color: var(--muted);
+      font-size: 11px;
+      background: #fff;
+    }
+    .badge.safe { border-color: #abefc6; color: var(--success); background: #ecfdf3; }
+    .badge.manual { border-color: #fedf89; color: var(--warning); background: #fffaeb; }
+
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .preview { padding: 12px; border-radius: 6px; background: var(--code-bg); color: var(--code); max-height: 210px; overflow: auto; }
+    .log-list { height: calc(100vh - 196px); min-height: 520px; overflow: auto; background: #fbfcfe; }
+    .log-entry { padding: 12px 14px; border-bottom: 1px solid var(--border); display: grid; gap: 7px; }
+    .log-entry:last-child { border-bottom: 0; }
+    .log-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 12px; }
+    .log-kind { font-weight: 700; color: var(--text); }
+    .log-kind.out { color: var(--primary); }
+    .log-kind.in { color: var(--success); }
+    .log-kind.err { color: var(--danger); }
+    .empty { padding: 22px; color: var(--muted); text-align: center; }
+
+    @media (max-width: 980px) {
+      main { grid-template-columns: 1fr; }
+      .log-list { height: auto; }
+      .header-inner { align-items: flex-start; flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <div class="header-inner">
+        <h1>MCP WebSocket Tester</h1>
+        <div class="status">
+          <span class="status-dot" :class="{ connected: connectionState === 'connected', connecting: connectionState === 'connecting' }"></span>
+          <span>{{ connectionLabel }}</span>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section>
+        <div class="section-header">
+          <h2>Connection</h2>
+          <button type="button" @click="clearLog">Clear Log</button>
+        </div>
+        <div class="section-body stack">
+          <label>
+            WebSocket URL
+            <input type="text" v-model.trim="wsUrl" placeholder="ws://192.168.4.1:8080/ws">
+          </label>
+          <div class="row">
+            <button type="button" class="primary" @click="connect" :disabled="isConnected || connectionState === 'connecting'">Connect</button>
+            <button type="button" class="danger" @click="disconnect" :disabled="!socket">Disconnect</button>
+            <button type="button" @click="sendInitialize" :disabled="!isConnected">initialize</button>
+            <button type="button" @click="sendToolsList" :disabled="!isConnected">tools/list</button>
+          </div>
+          <label class="checkbox">
+            <input type="checkbox" v-model="initializeOnOpen">
+            <span>Send initialize immediately after connect</span>
+          </label>
+          <label class="checkbox">
+            <input type="checkbox" v-model="wrappedMode">
+            <span>Send wrapped messages with {"type":"mcp"}</span>
+          </label>
+          <p class="hint">
+            The Mimi local endpoint is expected at port 8080. If firmware response routing has not been added yet,
+            requests may execute without a response returning on this WebSocket.
+          </p>
+        </div>
+
+        <div class="section-header">
+          <h2>Tool Presets</h2>
+          <button type="button" @click="testReadOnlyTools" :disabled="!isConnected">Test All Read-Only</button>
+        </div>
+        <div class="section-body stack">
+          <label>
+            Filter
+            <input type="text" v-model.trim="filterText" placeholder="Search tool name or group">
+          </label>
+          <div class="preset-list" aria-label="Tool preset list">
+            <button
+              type="button"
+              v-for="tool in filteredTools"
+              :key="tool.name"
+              class="preset-row"
+              :class="{ active: selectedToolName === tool.name }"
+              @click="selectTool(tool.name)"
+            >
+              <span class="tool-name">{{ tool.name }}</span>
+              <span class="tool-meta">{{ tool.group }} - {{ tool.description }}</span>
+              <span class="badge" :class="tool.safe ? 'safe' : 'manual'">{{ tool.safe ? 'read-only batch' : 'manual only' }}</span>
+            </button>
+          </div>
+          <label>
+            Arguments JSON
+            <textarea v-model="argumentsText" spellcheck="false"></textarea>
+          </label>
+          <div class="row">
+            <button type="button" class="primary" @click="callSelectedTool" :disabled="!isConnected || !selectedTool">Send Tool Call</button>
+            <button type="button" @click="formatArguments" :disabled="!selectedTool">Format JSON</button>
+            <button type="button" @click="resetArguments" :disabled="!selectedTool">Reset Args</button>
+          </div>
+          <div class="stack">
+            <span class="hint">Request preview</span>
+            <div class="preview"><pre>{{ requestPreview }}</pre></div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-header">
+          <h2>Response Log</h2>
+          <span class="hint">{{ logs.length }} entries</span>
+        </div>
+        <div class="log-list" ref="logList">
+          <div v-if="logs.length === 0" class="empty">No messages yet.</div>
+          <article v-for="entry in logs" :key="entry.key" class="log-entry">
+            <div class="log-title">
+              <span>
+                <span class="log-kind" :class="entry.kindClass">{{ entry.kind }}</span>
+                <span v-if="entry.label"> - {{ entry.label }}</span>
+                <span v-if="entry.id !== null && entry.id !== undefined"> - id {{ entry.id }}</span>
+              </span>
+              <span>{{ entry.time }}</span>
+            </div>
+            <pre>{{ entry.body }}</pre>
+          </article>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const { createApp } = Vue;
+
+    const defaultTools = [
+      { group: "Common", name: "self.get_device_status", safe: true, description: "Read current device status.", args: {} },
+      { group: "Common", name: "self.audio_speaker.set_volume", safe: false, description: "Set audio output volume.", args: { volume: 50 } },
+      { group: "Common", name: "self.screen.set_brightness", safe: false, description: "Set screen brightness.", args: { brightness: 70 } },
+      { group: "Common", name: "self.screen.set_theme", safe: false, description: "Set screen theme.", args: { theme: "dark" } },
+      { group: "Common", name: "self.camera.take_photo", safe: false, description: "Take a photo and ask a question about it.", args: { question: "What do you see?" } },
+      { group: "Network", name: "self.network.ip2qrcode", safe: true, description: "Show network IP QR code and return Wi-Fi status.", args: {} },
+      { group: "Media", name: "self.media.play_url", safe: false, description: "Play resolved media stream URL.", args: { url: "https://example.com/audio.mp3", type: "music", title: "", artist: "", source_name: "", lyric_url: "", duration_ms: 0, decoder: "auto" } },
+      { group: "Media", name: "self.audio.play_url", safe: false, description: "Compatibility alias for typed audio URL playback.", args: { url: "https://example.com/audio.mp3", type: "music", title: "", artist: "", source_name: "", lyric_url: "", duration_ms: 0, decoder: "auto" } },
+      { group: "Music", name: "self.music.set_display_mode", safe: false, description: "Set music display mode.", args: { mode: "spectrum" } },
+      { group: "SD Video", name: "self.sdvideo.playback", safe: false, description: "Control SD card video playback.", args: { action: "play" } },
+      { group: "SD Video", name: "self.sdvideo.search_play", safe: false, description: "Search and play SD video.", args: { video_name: "demo" } },
+      { group: "SD Music", name: "self.sdmusic.playback", safe: false, description: "Control SD card music playback.", args: { action: "play" } },
+      { group: "SD Music", name: "self.sdmusic.mode", safe: false, description: "Set SD music shuffle or repeat mode.", args: { action: "repeat", enabled: false, mode: "all" } },
+      { group: "SD Music", name: "self.sdmusic.track", safe: true, description: "Read SD music track info, list, or current.", args: { action: "list", index: 0 } },
+      { group: "SD Music", name: "self.sdmusic.directory", safe: true, description: "List SD music directories.", args: { action: "list", directory: "/" } },
+      { group: "SD Music", name: "self.sdmusic.search", safe: true, description: "Search SD music tracks.", args: { action: "search", keyword: "" } },
+      { group: "SD Music", name: "self.sdmusic.library", safe: true, description: "Read SD music library counts or page.", args: { action: "count_current", directory: "/", page: 1, page_size: 10 } },
+      { group: "SD Music", name: "self.sdmusic.reload", safe: false, description: "Rebuild SD music playlist.", args: {} },
+      { group: "SD Music", name: "self.sdmusic.suggest", safe: true, description: "Suggest SD music tracks.", args: { action: "next", keyword: "", max_results: 5 } },
+      { group: "SD Music", name: "self.sdmusic.progress", safe: true, description: "Read current SD music playback progress.", args: {} },
+      { group: "SD Music", name: "self.sdmusic.genre", safe: true, description: "Search SD music by genre.", args: { action: "search", genre: "", index: 0 } },
+      { group: "SD Music", name: "self.sdmusic.genre_list", safe: true, description: "List all SD music genres.", args: {} },
+      { group: "Mimi", name: "self.mimi.action", safe: false, description: "Execute a Mimi robot action.", args: { action: "home", steps: 3, speed: 700, direction: 1, amount: 30, arm_swing: 50 } },
+      { group: "Mimi", name: "self.mimi.servo_sequences", safe: false, description: "Queue a custom Mimi servo sequence.", args: { sequence: "{\"a\":[{\"s\":{\"ll\":90,\"rl\":90},\"v\":1000}]}" } },
+      { group: "Mimi", name: "self.mimi.stop", safe: false, description: "Stop Mimi actions and return home.", args: {} },
+      { group: "Mimi", name: "self.mimi.set_trim", safe: false, description: "Set one Mimi servo trim.", args: { servo_type: "left_leg", trim_value: 0 } },
+      { group: "Mimi", name: "self.mimi.get_trims", safe: true, description: "Read Mimi servo trims.", args: {} },
+      { group: "Mimi", name: "self.mimi.get_status", safe: true, description: "Read Mimi action status.", args: {} },
+      { group: "Mimi", name: "self.mimi.test_servo", safe: false, description: "Move one Mimi servo for hardware testing.", args: { servo: "ll", angle: 90, speed: 800, reset: true } },
+      { group: "Mimi", name: "self.battery.get_level", safe: true, description: "Read Mimi battery level and charging status.", args: {} },
+      { group: "Mimi", name: "self.mimi.get_ip", safe: true, description: "Read Mimi Wi-Fi IP address.", args: {} }
+    ];
+
+    createApp({
+      data() {
+        return {
+          wsUrl: "ws://192.168.4.1:8080/ws",
+          socket: null,
+          connectionState: "disconnected",
+          wrappedMode: false,
+          initializeOnOpen: true,
+          requestId: 1,
+          pending: new Map(),
+          logs: [],
+          filterText: "",
+          tools: defaultTools,
+          selectedToolName: "self.mimi.stop",
+          argumentsText: "{}"
+        };
+      },
+
+      computed: {
+        isConnected() {
+          return this.connectionState === "connected";
+        },
+        connectionLabel() {
+          if (this.connectionState === "connected") return "Connected";
+          if (this.connectionState === "connecting") return "Connecting";
+          return "Disconnected";
+        },
+        selectedTool() {
+          return this.tools.find((tool) => tool.name === this.selectedToolName) || null;
+        },
+        filteredTools() {
+          const query = this.filterText.toLowerCase();
+          if (!query) return this.tools;
+          return this.tools.filter((tool) => tool.name.toLowerCase().includes(query)
+            || tool.group.toLowerCase().includes(query)
+            || tool.description.toLowerCase().includes(query));
+        },
+        requestPreview() {
+          if (!this.selectedTool) return "";
+          try {
+            const args = JSON.parse(this.argumentsText || "{}");
+            return JSON.stringify(this.buildMessage("tools/call", {
+              name: this.selectedTool.name,
+              arguments: args
+            }, 999), null, 2);
+          } catch (error) {
+            return "Invalid arguments JSON: " + error.message;
+          }
+        }
+      },
+
+      mounted() {
+        this.resetArguments();
+      },
+
+      methods: {
+        connect() {
+          if (this.socket) this.disconnect();
+          this.connectionState = "connecting";
+          this.log("INFO", "connect", null, "Connecting to " + this.wsUrl);
+          try {
+            this.socket = new WebSocket(this.wsUrl);
+          } catch (error) {
+            this.connectionState = "disconnected";
+            this.log("ERROR", "connect", null, error.message);
+            return;
+          }
+          this.socket.addEventListener("open", () => {
+            this.connectionState = "connected";
+            this.log("INFO", "connect", null, "WebSocket opened");
+            if (this.initializeOnOpen) {
+              window.setTimeout(() => this.sendInitialize(), 0);
+            }
+          });
+          this.socket.addEventListener("message", (event) => this.handleMessage(event.data));
+          this.socket.addEventListener("error", () => this.log("ERROR", "socket", null, "WebSocket error"));
+          this.socket.addEventListener("close", (event) => {
+            this.connectionState = "disconnected";
+            const details = [
+              "WebSocket closed",
+              "code=" + event.code,
+              "clean=" + event.wasClean,
+              event.reason ? "reason=" + event.reason : "reason=(empty)"
+            ].join(", ");
+            this.log("INFO", "disconnect", null, details);
+            for (const entry of this.pending.values()) clearTimeout(entry.timer);
+            this.pending.clear();
+            this.socket = null;
+          });
+        },
+
+        disconnect() {
+          if (this.socket) this.socket.close();
+          for (const entry of this.pending.values()) clearTimeout(entry.timer);
+          this.pending.clear();
+          this.connectionState = "disconnected";
+        },
+
+        sendInitialize() {
+          this.sendRequest("initialize", {
+            protocolVersion: "2024-11-05",
+            capabilities: {},
+            clientInfo: { name: "mcp-ws-tester", version: "1.0" }
+          }, "initialize");
+        },
+
+        sendToolsList() {
+          this.sendRequest("tools/list", { cursor: "" }, "tools/list");
+        },
+
+        callSelectedTool() {
+          if (!this.selectedTool) return;
+          let args;
+          try {
+            args = JSON.parse(this.argumentsText || "{}");
+          } catch (error) {
+            this.log("ERROR", this.selectedTool.name, null, "Invalid arguments JSON: " + error.message);
+            return;
+          }
+          this.callTool(this.selectedTool.name, args);
+        },
+
+        callTool(name, args) {
+          this.sendRequest("tools/call", { name, arguments: args || {} }, name);
+        },
+
+        testReadOnlyTools() {
+          const safeReadOnlyToolNames = this.tools.filter((tool) => tool.safe).map((tool) => tool.name);
+          safeReadOnlyToolNames.forEach((name, index) => {
+            const tool = this.tools.find((item) => item.name === name);
+            setTimeout(() => this.callTool(tool.name, JSON.parse(JSON.stringify(tool.args))), index * 250);
+          });
+        },
+
+        sendRequest(method, params, label) {
+          if (!this.isConnected) {
+            this.log("ERROR", label, null, "WebSocket is not connected");
+            return;
+          }
+          const id = this.requestId++;
+          const message = this.buildMessage(method, params, id);
+          const body = JSON.stringify(message);
+          const timer = setTimeout(() => {
+            if (this.pending.has(id)) {
+              this.pending.delete(id);
+              this.log("TIMEOUT", label, id, "No response after 10000 ms. Firmware may need local WS response routing.");
+            }
+          }, 10000);
+          this.pending.set(id, { label, timer });
+          this.socket.send(body);
+          this.log("OUT", label, id, JSON.stringify(message, null, 2));
+        },
+
+        buildMessage(method, params, id) {
+          const payload = { jsonrpc: "2.0", method, params, id };
+          if (!this.wrappedMode) return payload;
+          return { type: "mcp", payload };
+        },
+
+        handleMessage(raw) {
+          let parsed;
+          try {
+            parsed = JSON.parse(raw);
+          } catch (error) {
+            this.log("ERROR", "message", null, "Invalid JSON response: " + raw);
+            return;
+          }
+          const payload = parsed && parsed.type === "mcp" && parsed.payload ? parsed.payload : parsed;
+          const id = payload && payload.id;
+          const pending = this.pending.get(id);
+          if (pending) {
+            clearTimeout(pending.timer);
+            this.pending.delete(id);
+          }
+          this.log("IN", pending ? pending.label : "message", id, JSON.stringify(parsed, null, 2));
+        },
+
+        selectTool(name) {
+          this.selectedToolName = name;
+          this.resetArguments();
+        },
+
+        resetArguments() {
+          this.argumentsText = this.selectedTool ? JSON.stringify(this.selectedTool.args, null, 2) : "{}";
+        },
+
+        formatArguments() {
+          try {
+            this.argumentsText = JSON.stringify(JSON.parse(this.argumentsText || "{}"), null, 2);
+          } catch (error) {
+            this.log("ERROR", "format", null, "Invalid arguments JSON: " + error.message);
+          }
+        },
+
+        clearLog() {
+          this.logs = [];
+        },
+
+        log(kind, label, id, body) {
+          const kindClass = kind === "OUT" ? "out" : kind === "IN" ? "in" : "err";
+          const fallbackKey = String(Date.now()) + String(Math.random());
+          this.logs.unshift({
+            key: window.crypto && crypto.randomUUID ? crypto.randomUUID() : fallbackKey,
+            kind,
+            kindClass,
+            label,
+            id,
+            body,
+            time: new Date().toLocaleTimeString()
+          });
+          this.$nextTick(() => {
+            if (this.$refs.logList) this.$refs.logList.scrollTop = 0;
+          });
+        }
+      }
+    }).mount("#app");
+  </script>
+</body>
+</html>

@@ -536,6 +536,9 @@ choice BOARD_TYPE
     config BOARD_TYPE_OTTO_ROBOT
         bool "ottoRobot"
         depends on IDF_TARGET_ESP32S3
+    config BOARD_TYPE_MIMI_ROBOT
+        bool "mimiRobot"
+        depends on IDF_TARGET_ESP32S3
     config BOARD_TYPE_ELECTRON_BOT
         bool "electronBot"
         depends on IDF_TARGET_ESP32S3
@@ -979,5 +982,96 @@ menu "TAIJIPAI_S3_CONFIG"
     help
         启动双声道
 endmenu
+
+endmenu
+
+# ============================================================
+# XFeature
+# ============================================================
+menu "XFeature"
+
+    config XFEATURE_ENABLE
+        bool "Enable XFeature (media players, weather, QR code)"
+        default n
+        help
+            Enable all extension features of XFeature:
+            - Online Music Player (Esp32Music)
+            - SD Card Music & Video Player
+            - Weather Idle Screen
+            - QR Code IP Display
+    # Weather Idle Screen
+    config WEATHER_IDLE_DISPLAY_ENABLE
+        bool "Enable weather idle screen display"
+        depends on XFEATURE_ENABLE
+        default n
+        help
+            Display an idle screen with weather info, clock,
+            date and 3-day forecast when the device is idle.
+
+    config WEATHER_API_KEY
+        string "OpenWeatherMap API key"
+        depends on WEATHER_IDLE_DISPLAY_ENABLE
+        default ""
+        help
+            API key from openweathermap.org to fetch weather data.
+
+    config WEATHER_CITY
+        string "City name for weather"
+        depends on WEATHER_IDLE_DISPLAY_ENABLE
+        default "Hanoi"
+        help
+            City name to fetch weather data (in English).
+    # Weather Idle Screen
+
+    # QR Code IP Display
+    config QR_CODE_IP_DISPLAY_ENABLE
+        bool "Enable QR code IP display"
+        depends on XFEATURE_ENABLE
+        default n
+        help
+            Display device IP address as a QR code on the screen for easy scanning when connected to WiFi.
+    # QR Code IP Display
+
+    # Expressive Face
+    config EXPRESSIVE_FACE_ENABLE
+        bool "Enable feature-managed expressive LVGL face"
+        depends on XFEATURE_ENABLE
+        default y if BOARD_TYPE_MIMI_ROBOT
+        default n
+        help
+            Enables the reusable expressive face feature under x_feature_manager.
+            The renderer attaches to the display feature layer with no legacy face runtime dependency.
+    # Expressive Face
+
+    # Media Players
+    config MUSIC_ENABLE
+        bool "Enable Music Player"
+        depends on XFEATURE_ENABLE
+        default n
+        help
+            Enable the online music player feature, allowing users to play music from online sources.
+    # Media Players
+
+    # SD Card Media Player
+    config SD_CARD_ENABLE
+        bool "Enable SD Card Media Player"
+        depends on XFEATURE_ENABLE
+        default n
+        help
+            Enable the SD card media player feature, allowing users to play music and videos stored on an SD card.
+    # SD Card Media Player
+
+    # Idle Pet
+    config IDLE_PET_ENABLE
+        bool "Enable Idle Pet autonomous behavior"
+        depends on XFEATURE_ENABLE
+        default y if BOARD_TYPE_MIMI_ROBOT
+        default n
+        help
+            When device is idle, autonomously triggers mood-based servo movements and
+            proactive speech to give the device a desktop-pet personality.
+            Config (personality, frequency, speech) is persisted in NVS and adjustable
+            at runtime via MCP tools (self.idle_pet.*).
+    # Idle Pet
 
 endmenu

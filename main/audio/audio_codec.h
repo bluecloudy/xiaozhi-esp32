@@ -20,6 +20,10 @@ public:
     virtual ~AudioCodec();
     
     virtual void SetOutputVolume(int volume);
+    // Dynamic sample rate (for media players)
+    virtual bool SetOutputSampleRate(int sample_rate);
+    inline int original_output_sample_rate() const { return original_output_sample_rate_; }
+
     virtual void SetInputGain(float gain);
     virtual void EnableInput(bool enable);
     virtual void EnableOutput(bool enable);
@@ -49,6 +53,7 @@ protected:
     bool output_enabled_ = false;
     int input_sample_rate_ = 0;
     int output_sample_rate_ = 0;
+    int original_output_sample_rate_ = 0; 
     int input_channels_ = 1;
     int output_channels_ = 1;
     int output_volume_ = 70;

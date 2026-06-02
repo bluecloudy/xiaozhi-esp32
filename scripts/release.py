@@ -370,6 +370,19 @@ def release(board_type: str, config_filename: str = "config.json", *, filter_nam
 
         os.environ.pop("IDF_TARGET", None)
 
+        # Check for custom sdkconfig files
+        custom_sdkconfig_path: Optional[Path] = None
+        custom_sdkconfig_candidates = [
+            Path(f"sdkconfig.{final_name}.{target}"),
+            Path(f"sdkconfig.{name}.{target}"),
+            Path(f"sdkconfig.{board_leaf}.{target}")
+        ]
+        for p in custom_sdkconfig_candidates:
+            if p.exists():
+                custom_sdkconfig_path = p
+                print(f"[INFO] Using custom sdkconfig: {p.name}")
+                break
+
         # Call set-target
         if os.system(f"idf.py set-target {target}") != 0:
             print("set-target failed", file=sys.stderr)
@@ -379,6 +392,11 @@ def release(board_type: str, config_filename: str = "config.json", *, filter_nam
         with Path("sdkconfig").open("a", encoding='utf-8') as f:
             f.write("\n")
             f.write("# Append by release.py\n")
+            # Apply custom sdkconfig overrides first (so sdkconfig_append can still override them)
+            if custom_sdkconfig_path:
+                f.write(f"# From {custom_sdkconfig_path.name}\n")
+                f.write(custom_sdkconfig_path.read_text(encoding='utf-8'))
+                f.write("\n")
             for append in sdkconfig_append:
                 f.write(f"{append}\n")
         # Build with macro BOARD_NAME defined to name

@@ -325,6 +325,7 @@ public:
     void AddUserOnlyTool(const std::string& name, const std::string& description, const PropertyList& properties, std::function<ReturnValue(const PropertyList&)> callback);
     void ParseMessage(const cJSON* json);
     void ParseMessage(const std::string& message);
+    void RejectRequest(int id, const std::string& message);
 
 private:
     McpServer();

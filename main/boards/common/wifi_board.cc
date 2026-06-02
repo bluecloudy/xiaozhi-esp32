@@ -282,6 +282,10 @@ std::string WifiBoard::GetBoardJson() {
 }
 
 void WifiBoard::SetPowerSaveLevel(PowerSaveLevel level) {
+    if (has_power_save_level_ && power_save_level_ == level) {
+        return;
+    }
+
     WifiPowerSaveLevel wifi_level;
     switch (level) {
         case PowerSaveLevel::LOW_POWER:
@@ -296,6 +300,8 @@ void WifiBoard::SetPowerSaveLevel(PowerSaveLevel level) {
             break;
     }
     WifiManager::GetInstance().SetPowerSaveLevel(wifi_level);
+    power_save_level_ = level;
+    has_power_save_level_ = true;
 }
 
 std::string WifiBoard::GetDeviceStatusJson() {

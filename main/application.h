@@ -66,6 +66,8 @@ public:
 
     DeviceState GetDeviceState() const { return state_machine_.GetState(); }
     bool IsVoiceDetected() const { return audio_service_.IsVoiceDetected(); }
+    // [XFeature] Expose state machine for external listener registration
+    DeviceStateMachine& GetStateMachine() { return state_machine_; }
     
     /**
      * Request state transition
@@ -103,6 +105,19 @@ public:
      * Sends MAIN_EVENT_STOP_LISTENING to be handled in Run()
      */
     void StopListening();
+
+    /**
+     * [XFeature] Ensure device is in Idle state before media playback.
+     * Calls ToggleChatState() / SetDeviceState() as needed.
+     */
+    bool EnsureIdleForMedia();
+
+    /**
+     * [IdlePet] Open audio channel (if needed) and send a proactive prompt to the server.
+     * No-op if device is not Idle or protocol unavailable. Must be called from any task
+     * (internally uses Schedule for main-task safety).
+     */
+    void RequestProactiveInteraction(const std::string& prompt);
 
     void Reboot();
     void WakeWordInvoke(const std::string& wake_word);
@@ -144,6 +159,7 @@ private:
     bool aborted_ = false;
     bool assets_version_checked_ = false;
     bool play_popup_on_listening_ = false;  // Flag to play popup sound after state changes to listening
+    bool proactive_interaction_active_ = false;
     int clock_ticks_ = 0;
     TaskHandle_t activation_task_handle_ = nullptr;
 

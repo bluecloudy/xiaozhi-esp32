@@ -9,6 +9,8 @@
 #include "mcp_server.h"
 #include "assets.h"
 #include "settings.h"
+#include "x_feature_manager.h"
+
 
 #include <cstring>
 #include <esp_log.h>
@@ -18,6 +20,43 @@
 #include <font_awesome.h>
 
 #define TAG "Application"
+
+namespace {
+
+bool IsReadOnlyMcpTool(const std::string& name) {
+    return name == "self.get_device_status" ||
+           name == "self.mimi.get_status" ||
+           name == "self.mimi.get_trims" ||
+           name == "self.mimi.get_ip" ||
+           name == "self.battery.get_level" ||
+           name == "self.idle_pet.get_config" ||
+           name == "self.idle_pet.get_status";
+}
+
+bool IsMcpToolCall(const cJSON* payload, int* id, std::string* tool_name) {
+    if (!cJSON_IsObject(payload)) {
+        return false;
+    }
+
+    auto method = cJSON_GetObjectItem(payload, "method");
+    if (!cJSON_IsString(method) || strcmp(method->valuestring, "tools/call") != 0) {
+        return false;
+    }
+
+    auto request_id = cJSON_GetObjectItem(payload, "id");
+    if (cJSON_IsNumber(request_id) && id != nullptr) {
+        *id = request_id->valueint;
+    }
+
+    auto params = cJSON_GetObjectItem(payload, "params");
+    auto name = cJSON_IsObject(params) ? cJSON_GetObjectItem(params, "name") : nullptr;
+    if (cJSON_IsString(name) && tool_name != nullptr) {
+        *tool_name = name->valuestring;
+    }
+    return true;
+}
+
+} // namespace
 
 
 Application::Application() {
@@ -88,7 +127,9 @@ void Application::Initialize() {
     // Add state change listeners
     state_machine_.AddStateChangeListener([this](DeviceState old_state, DeviceState new_state) {
         xEventGroupSetBits(event_group_, MAIN_EVENT_STATE_CHANGED);
+        XFeatureManager::GetInstance().BroadcastStateChanged(old_state, new_state);
     });
+
 
     // Start the clock timer to update the status bar
     esp_timer_start_periodic(clock_timer_handle_, 1000000);
@@ -160,7 +201,11 @@ void Application::Initialize() {
 
     // Update the status bar immediately to show the network state
     display->UpdateStatusBar(true);
+
+    // [XFeature] Initialize all registered features after board setup is complete
+    XFeatureManager::GetInstance().Initialize();
 }
+
 
 void Application::Run() {
     // Set the priority of the main task to 10
@@ -249,17 +294,20 @@ void Application::Run() {
             clock_ticks_++;
             auto display = Board::GetInstance().GetDisplay();
             display->UpdateStatusBar();
+            XFeatureManager::GetInstance().BroadcastClockTick(clock_ticks_);
         
             // Print debug info every 10 seconds
             if (clock_ticks_ % 10 == 0) {
                 SystemInfo::PrintHeapStats();
             }
         }
+
     }
 }
 
 void Application::HandleNetworkConnectedEvent() {
     ESP_LOGI(TAG, "Network connected");
+    XFeatureManager::GetInstance().BroadcastNetworkConnected();
     auto state = GetDeviceState();
 
     if (state == kDeviceStateStarting || state == kDeviceStateWifiConfiguring) {
@@ -496,7 +544,11 @@ void Application::InitializeProtocol() {
     });
     
     protocol_->OnIncomingAudio([this](std::unique_ptr<AudioStreamPacket> packet) {
-        if (GetDeviceState() == kDeviceStateSpeaking) {
+        auto state = GetDeviceState();
+        // Accept audio when Speaking OR when still transitioning from Listening to Speaking.
+        // tts/start and audio may arrive together; state change is deferred to main task,
+        // so audio can arrive before the Speaking state is active.
+        if (state == kDeviceStateSpeaking || state == kDeviceStateListening) {
             audio_service_.PushPacketToDecodeQueue(std::move(packet));
         }
     });
@@ -510,7 +562,12 @@ void Application::InitializeProtocol() {
     });
     
     protocol_->OnAudioChannelClosed([this, &board]() {
-        board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
+        proactive_interaction_active_ = false;
+        if (XFeatureManager::GetInstance().ShouldKeepNetworkPerformance()) {
+            board.SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
+        } else {
+            board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
+        }
         Schedule([this]() {
             auto display = Board::GetInstance().GetDisplay();
             display->SetChatMessage("system", "");
@@ -530,6 +587,7 @@ void Application::InitializeProtocol() {
                 });
             } else if (strcmp(state->valuestring, "stop") == 0) {
                 Schedule([this]() {
+                    proactive_interaction_active_ = false;
                     if (GetDeviceState() == kDeviceStateSpeaking) {
                         if (listening_mode_ == kListeningModeManualStop) {
                             SetDeviceState(kDeviceStateIdle);
@@ -542,6 +600,12 @@ void Application::InitializeProtocol() {
                 auto text = cJSON_GetObjectItem(root, "text");
                 if (cJSON_IsString(text)) {
                     ESP_LOGI(TAG, "<< %s", text->valuestring);
+                    if (strstr(text->valuestring, "mimi-") || strstr(text->valuestring, "mimi_")) {
+                        ESP_LOGW(TAG,
+                                 "Remote MCP marker observed in assistant transcript. "
+                                 "If no later local MCP tools/call name=self.media.play_url appears, "
+                                 "playback failed before the ESP32 local player was invoked.");
+                    }
                     Schedule([display, message = std::string(text->valuestring)]() {
                         display->SetChatMessage("assistant", message.c_str());
                     });
@@ -565,6 +629,19 @@ void Application::InitializeProtocol() {
         } else if (strcmp(type->valuestring, "mcp") == 0) {
             auto payload = cJSON_GetObjectItem(root, "payload");
             if (cJSON_IsObject(payload)) {
+                int request_id = -1;
+                std::string tool_name;
+                if (proactive_interaction_active_ &&
+                    IsMcpToolCall(payload, &request_id, &tool_name) &&
+                    !IsReadOnlyMcpTool(tool_name)) {
+                    ESP_LOGW(TAG, "Reject proactive idle MCP tool call: %s", tool_name.c_str());
+                    if (request_id >= 0) {
+                        McpServer::GetInstance().RejectRequest(
+                            request_id,
+                            "Tool calls that change device state are disabled during idle proactive events");
+                    }
+                    return;
+                }
                 McpServer::GetInstance().ParseMessage(payload);
             }
         } else if (strcmp(type->valuestring, "system") == 0) {
@@ -669,6 +746,33 @@ void Application::StartListening() {
 
 void Application::StopListening() {
     xEventGroupSetBits(event_group_, MAIN_EVENT_STOP_LISTENING);
+}
+
+bool Application::EnsureIdleForMedia() {
+    DeviceState ds = state_machine_.GetState();
+
+    if (ds == kDeviceStateIdle || ds == kDeviceStateUnknown) {
+        return true;
+    }
+
+    if (ds != kDeviceStateListening && ds != kDeviceStateSpeaking) {
+        SetDeviceState(kDeviceStateIdle);
+        return true;
+    }
+
+    constexpr int kMaxRetries = 10;
+    constexpr int kRetryDelayMs = 200;
+    for (int i = 0; i < kMaxRetries; ++i) {
+        ToggleChatState();
+        vTaskDelay(pdMS_TO_TICKS(kRetryDelayMs));
+        ds = state_machine_.GetState();
+        if (ds == kDeviceStateIdle) {
+            return true;
+        }
+    }
+
+    SetDeviceState(kDeviceStateIdle);
+    return true;
 }
 
 void Application::HandleToggleChatEvent() {
@@ -847,7 +951,7 @@ void Application::ContinueWakeWordInvoke(const std::string& wake_word) {
         protocol_->SendAudio(std::move(packet));
     }
     // Set the chat state to wake word detected
-    protocol_->SendWakeWordDetected(wake_word);
+    protocol_->SendProactiveText(wake_word);
     SetListeningMode(GetDefaultListeningMode());
 #else
     // Set flag to play popup sound after state changes to listening
@@ -873,7 +977,7 @@ void Application::HandleStateChangedEvent() {
             display->ClearChatMessages();  // Clear messages first
             display->SetEmotion("neutral"); // Then set emotion (wechat mode checks child count)
             audio_service_.EnableVoiceProcessing(false);
-            audio_service_.EnableWakeWordDetection(true);
+            audio_service_.EnableWakeWordDetection(!XFeatureManager::GetInstance().IsMediaPlaying());
             break;
         case kDeviceStateConnecting:
             display->SetStatus(Lang::Strings::CONNECTING);
@@ -919,7 +1023,10 @@ void Application::HandleStateChangedEvent() {
                 // Only AFE wake word can be detected in speaking mode
                 audio_service_.EnableWakeWordDetection(audio_service_.IsAfeWakeWord());
             }
-            audio_service_.ResetDecoder();
+            // ResetDecoder is intentionally NOT called here: when transitioning from
+            // Listening, EnableVoiceProcessing(true) already called ResetDecoder().
+            // Calling it again would clear TTS audio that arrived during the Listening→
+            // Speaking race (network thread queues audio before main task updates state).
             break;
         case kDeviceStateWifiConfiguring:
             audio_service_.EnableVoiceProcessing(false);
@@ -954,6 +1061,37 @@ void Application::SetListeningMode(ListeningMode mode) {
 
 ListeningMode Application::GetDefaultListeningMode() const {
     return aec_mode_ == kAecOff ? kListeningModeAutoStop : kListeningModeRealtime;
+}
+
+void Application::RequestProactiveInteraction(const std::string& prompt) {
+    Schedule([this, prompt]() {
+        if (GetDeviceState() != kDeviceStateIdle) return;
+        if (!protocol_) return;
+
+        if (!protocol_->IsAudioChannelOpened()) {
+            SetDeviceState(kDeviceStateConnecting);
+            // Let the state-change UI update first, then open channel (may block ~1s)
+            Schedule([this, prompt]() {
+                if (GetDeviceState() != kDeviceStateConnecting) return;
+                if (!protocol_->OpenAudioChannel()) {
+                    ESP_LOGW(TAG, "IdlePet: failed to open audio channel");
+                    proactive_interaction_active_ = false;
+                    SetDeviceState(kDeviceStateIdle);
+                    return;
+                }
+                proactive_interaction_active_ = true;
+                protocol_->SendProactiveText(prompt);
+                listening_mode_ = kListeningModeManualStop;
+                SetDeviceState(kDeviceStateSpeaking);
+            });
+        } else {
+            // Channel already open: send the event without enabling microphone capture.
+            proactive_interaction_active_ = true;
+            protocol_->SendProactiveText(prompt);
+            listening_mode_ = kListeningModeManualStop;
+            SetDeviceState(kDeviceStateSpeaking);
+        }
+    });
 }
 
 void Application::Reboot() {
@@ -1128,4 +1266,3 @@ void Application::ResetProtocol() {
         protocol_.reset();
     });
 }
-
